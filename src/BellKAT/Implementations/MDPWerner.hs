@@ -50,6 +50,7 @@ import           BellKAT.Utils.MDP
     , mapMDPProbabilities
     , minimizeStateSystem
     , parallelCompose
+    , primitiveCostWith
     , requireCardinality
     , setAllCosts
     )
@@ -244,42 +245,43 @@ computeListOutput pac mbCap timing (ListOutput xs) chosen untouched =
     -- , where rest' are the pairs that were not chosen for the primitive action
     go ((i, out):outs) (WernerBellPairs currentBps) =
         mconcat
-            [ parallelCompose (computePrimitiveOutput pac roundCost out (WernerBellPairs chosenBps))
+            [ parallelCompose (computePrimitiveOutput pac timing roundCost out (WernerBellPairs chosenBps))
                               (go outs (WernerBellPairs rest'))
             | Partial { chosen = chosenBps, rest = rest' } <- findElemsNDT staticBellPair (toList . Mset.bellPairs $ i) currentBps
             ]
 
 computePrimitiveOutput
     :: ProbabilisticActionConfiguration
+    -> OperationTiming
     -> Int
     -> BinaryOutput
     -> WernerBellPairs
     -> MDP Double WernerPieces
-computePrimitiveOutput _ _ BinaryOutput{boOperation = FSkip} _ =
+computePrimitiveOutput _ _ _ BinaryOutput{boOperation = FSkip} _ =
     fromDistribution (cpure mempty)
-computePrimitiveOutput _ _ BinaryOutput{boOperation = FDestroy} _ =
+computePrimitiveOutput _ _ _ BinaryOutput{boOperation = FDestroy} _ =
     fromDistribution (cpure mempty)
-computePrimitiveOutput pac roundCost BinaryOutput{boOutputBP = outBp, boOperation = FCreate p w} chosen =
+computePrimitiveOutput pac timing roundCost BinaryOutput{boOutputBP = outBp, boOperation = op@(FCreate p w)} chosen =
     requireCardinality "create" 0 chosen $
-        cmap producedPieces $ createLike pac (fromRational p) w 1 roundCost outBp
-computePrimitiveOutput pac roundCost BinaryOutput{boOutputBP = outBp, boOperation = FGenerate p w d} chosen =
+        cmap producedPieces $ createLike pac (fromRational p) w (primitiveCostWith timing op) roundCost outBp
+computePrimitiveOutput pac timing roundCost BinaryOutput{boOutputBP = outBp, boOperation = op@(FGenerate p w _)} chosen =
     requireCardinality "generate" 0 chosen $
-        cmap producedPieces $ createLike pac (fromRational p) w d roundCost outBp
-computePrimitiveOutput pac roundCost BinaryOutput{boOutputBP = outBp, boOperation = FTransmit p _ d} chosen =
+        cmap producedPieces $ createLike pac (fromRational p) w (primitiveCostWith timing op) roundCost outBp
+computePrimitiveOutput pac timing roundCost BinaryOutput{boOutputBP = outBp, boOperation = op@(FTransmit p _ _)} chosen =
     requireCardinality "transmit" 1 chosen $
-        cmap producedPieces $ transmitLike pac (fromRational p) d roundCost outBp chosen
-computePrimitiveOutput pac roundCost BinaryOutput{boOperation = FIdle tCohs} chosen =
+        cmap producedPieces $ transmitLike pac (fromRational p) (primitiveCostWith timing op) roundCost outBp chosen
+computePrimitiveOutput pac _ roundCost BinaryOutput{boOperation = FIdle tCohs} chosen =
     requireCardinality "idle" (length tCohs) chosen $
         cmap retainedPieces $ idleLike pac roundCost chosen
-computePrimitiveOutput pac roundCost BinaryOutput{boOutputBP = outBp, boOperation = FSwap p _ ds} chosen =
+computePrimitiveOutput pac timing roundCost BinaryOutput{boOutputBP = outBp, boOperation = op@(FSwap p _ _)} chosen =
     requireCardinality "swap" 2 chosen $
-        cmap producedPieces $ swapLike pac (fromRational p) (max (fst ds) (snd ds)) roundCost outBp chosen
-computePrimitiveOutput pac roundCost BinaryOutput{boOutputBP = outBp, boOperation = FSimSwap p _ distanceSpecs} chosen =
+        cmap producedPieces $ swapLike pac (fromRational p) (primitiveCostWith timing op) roundCost outBp chosen
+computePrimitiveOutput pac _ roundCost BinaryOutput{boOutputBP = outBp, boOperation = FSimSwap p _ distanceSpecs} chosen =
     requireCardinality "simultaneous swap" (length distanceSpecs) chosen $
         cmap producedPieces $ simSwapLike pac (fromRational p) roundCost outBp chosen
-computePrimitiveOutput pac roundCost BinaryOutput{boOutputBP = outBp, boOperation = FDistill _ d} chosen =
+computePrimitiveOutput pac timing roundCost BinaryOutput{boOutputBP = outBp, boOperation = op@(FDistill _ _)} chosen =
     requireCardinality "distill" 2 chosen $
-        cmap producedPieces $ distillLike pac d roundCost outBp chosen
+        cmap producedPieces $ distillLike pac (primitiveCostWith timing op) roundCost outBp chosen
 
 createLike
     :: ProbabilisticActionConfiguration
