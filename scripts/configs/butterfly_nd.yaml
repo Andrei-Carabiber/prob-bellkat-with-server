@@ -1,0 +1,31 @@
+executable: quantP_analyze_butterfly
+mode: qmdp
+coverage: 0.99
+ev_eta: "A-C or A=C or B-D or B=D"
+ev_opt: "A-C"
+evs:
+  - name: AC_pure
+    event: "A-C"
+    extrema: ["min", "max"]
+  - name: AC_mixed
+    event: "A=C"
+    extrema: ["min", "max"]
+  - name: BD_pure
+    event: "B-D"
+    extrema: ["min", "max"]
+  - name: BD_mixed
+    event: "B=D"
+    extrema: ["min", "max"]
+derived:
+  - name: AC_pmf
+    sum: [AC_pure, AC_mixed]
+    extrema: ["min", "max"]
+  - name: AC_werner
+    ratio: [AC_pure, AC_pmf]
+    extrema: ["min", "max"]
+  - name: BD_pmf
+    sum: [BD_pure, BD_mixed]
+    extrema: ["min", "max"]
+  - name: BD_werner
+    ratio: [BD_pure, BD_pmf]
+    extrema: ["min", "max"]

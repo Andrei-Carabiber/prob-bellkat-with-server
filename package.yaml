@@ -113,6 +113,7 @@ library:
     - BellKAT.Prelude
     - BellKAT.ProbabilisticPrelude
     - BellKAT.QuantumPrelude
+    - BellKAT.QuantumEventParser
 
 executables:
   p1:
@@ -401,15 +402,6 @@ executables:
       - OverloadedLists
     ghc-options:
       - -rtsopts
-  quantP_compare_swap:
-    dependencies:
-      - bellkat
-    main: quantum-examples/P_compare_swap.hs
-    default-extensions:
-      - OverloadedStrings
-      - OverloadedLists
-    ghc-options:
-      - -rtsopts
   quantPa:
     dependencies: 
       - bellkat
@@ -459,6 +451,42 @@ executables:
     dependencies: 
       - bellkat
     main: quantum-examples/qcnc/P5_Star.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_swap:
+    dependencies:
+      - bellkat
+    main: quantum-examples/P_compare_swap.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_analyze_swap:
+    dependencies:
+      - bellkat
+    main: quantum-examples/P_analyze_swap.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_analyze_star:
+    dependencies:
+      - bellkat
+    main: quantum-examples/P_analyze_star.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_analyze_butterfly:
+    dependencies:
+      - bellkat
+    main: quantum-examples/P_analyze_butterfly.hs
     default-extensions:
       - OverloadedStrings
       - OverloadedLists

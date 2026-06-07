@@ -35,14 +35,19 @@ import BellKAT.Implementations.MDPExtremal
   ( CoverageStatus(..)
   , ExtremalQuery(..)
   , computeExtremalReachability
+  , computeScheduledReachability
   , erCoverageStatus
   , erInitialState
+  , erMaxScheduler
   , erMaxTable
+  , erMinScheduler
   , erMinTable
   , erResolvedBudget
   , extremalDPTablesToJSON
   , renderExtremalDPTables
   , renderExtremalResult
+  , srCDFSeries
+  , srPMFSeries
   )
 import BellKAT.Implementations.QuantumOps
 import BellKAT.Implementations.ProbabilisticQuantumOps (DistillationCount, StateKind(..), WernerTag(..))
@@ -334,6 +339,45 @@ spec = do
       IM.lookup 0 (ssTransitions minimized) `shouldBe` Nothing
       fmap (Map.keys) (IM.lookup 1 (ssTransitions minimized)) `shouldBe` Just [promoted]
 
+    it "replays secondary events under one fixed finite-horizon scheduler" $ do
+      let home = ["Home"] :: [String]
+          goal = ["Goal"] :: [String]
+          dead = ["Dead"] :: [String]
+          flight :: MDP Rational (Int, [String])
+          flight =
+            fromGenerator
+              [ (((0, goal), StepCost (Sum 1)), 1 % 2)
+              , (((0, home), StepCost (Sum 1)), 1 % 2)
+              ]
+          train :: MDP Rational (Int, [String])
+          train =
+            fromGenerator
+              [ (((0, goal), StepCost (Sum 2)), 9 % 10)
+              , (((0, dead), StepCost (Sum 2)), 1 % 10)
+              ]
+          ss :: StateSystem (MDP Rational) [String]
+          ss = SS
+                { ssInitial = (0, home)
+                , ssTransitions = IM.fromList
+                    [ (0, Map.fromList [(home, flight <> train)])
+                    ]
+                }
+          Right optimized =
+            computeExtremalReachability (== goal) (ExtremalBudget 3) ss
+          Right replay =
+            computeScheduledReachability (== goal) (ExtremalBudget 3) (erMaxScheduler optimized) ss
+          cdf = srCDFSeries replay
+          pmf = srPMFSeries replay
+          maxAtHorizon =
+            Map.lookup (erInitialState optimized) (erMaxTable optimized) >>= IM.lookup 3
+
+      cdf `shouldBe` [0, 1 % 2, 1 % 2, 19 % 20]
+      pmf `shouldBe` [0, 1 % 2, 0, 9 % 20]
+      cdf !! 2 `shouldNotBe` (9 % 10)
+      all (>= 0) pmf `shouldBe` True
+      and (zipWith (<=) cdf (drop 1 cdf)) `shouldBe` True
+      Just (last cdf) `shouldBe` maxAtHorizon
+
   describe "static MDP" $ do
     it "builds a finite Pa MDP with per-distribution costs and elides empty labels" $ do
       let pac = PAC
@@ -457,16 +501,27 @@ spec = do
           Just (A.Object jsonExtremal) = A.decode (A.encode resultBudget)
           Just (A.Object jsonSeries) = AKM.lookup "series" jsonExtremal
           A.Object jsonDPTables = extremalDPTablesToJSON resultBudget
+          Right replayMin =
+            computeScheduledReachability (holdsStaticTest ev) (ExtremalBudget 10) (erMinScheduler resultBudget) mdp
+          Right replayMax =
+            computeScheduledReachability (holdsStaticTest ev) (ExtremalBudget 10) (erMaxScheduler resultBudget) mdp
+          replayMin10 =
+            Just (last (srCDFSeries replayMin))
+          replayMax10 =
+            Just (last (srCDFSeries replayMax))
 
       erResolvedBudget resultBudget `shouldBe` 10
       cMin10 `shouldSatisfy` (>= 0)
       cMax10 `shouldSatisfy` (<= 1)
       cMin10 `shouldSatisfy` (<= cMax10)
+      replayMin10 `shouldBe` Just cMin10
+      replayMax10 `shouldBe` Just cMax10
       renderedExtremal `shouldSatisfy` isInfixOf "t   pmf_min[t]"
       renderedDPTables `shouldSatisfy` isInfixOf "DP table dump"
       renderedDPTables `shouldSatisfy` isInfixOf "Min DP table:"
       renderedDPTables `shouldSatisfy` isInfixOf "Max DP table:"
       jsonExtremal `shouldSatisfy` AKM.member "series"
+      jsonExtremal `shouldSatisfy` AKM.member "schedulers"
       jsonSeries `shouldSatisfy` AKM.member "cdf_min"
       jsonSeries `shouldSatisfy` AKM.member "cdf_max"
       jsonSeries `shouldSatisfy` not . AKM.member "pmf_min"

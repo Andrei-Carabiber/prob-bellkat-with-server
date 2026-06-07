@@ -139,32 +139,12 @@ nb :: NetworkBounds QBKATTag
 nb = def { nbCapacity = Just networkCapacity }
 
 -- Case 1: fully homogeneous, swap-asap is better
--- actionConfig :: Double -> Int -> ProbabilisticActionConfiguration
--- actionConfig w0 tCoh = PAC
---     { pacTransmitProbability = []
---     , pacCreateProbability = []
---     , pacCreateWerner = []
---     , pacUCreateProbability = [(("A", "B"), 1/20), (("B", "C"), 1/20), (("C", "D"), 1/20)]
---     , pacUCreateWerner = [(("A", "B"), w0), (("B", "C"), w0), (("C", "D"), w0)]
---     , pacSwapProbability = [("B", 1/2), ("C", 1/2)]
---     , pacCoherenceTime = [("A", tCoh), ("B", tCoh), ("C", tCoh), ("D", tCoh)]
---     , pacDistances =
---     [ (("A", "B"), 1)
---     , (("B", "C"), 1)
---     , (("C", "D"), 1)
---     , (("A", "C"), 2)
---     , (("B", "D"), 2)
---     , (("A", "D"), 3)
---     ]
---     }
-
--- Case 2: heterogeneous, sequential is better cause it fixes the optimal swap (start from the right swap, then the left one)
 actionConfig :: Double -> Int -> ProbabilisticActionConfiguration
 actionConfig w0 tCoh = PAC
     { pacTransmitProbability = []
     , pacCreateProbability = []
     , pacCreateWerner = []
-    , pacUCreateProbability = [(("A", "B"), 1/20), (("B", "C"), 1/20), (("C", "D"), 1/200)]
+    , pacUCreateProbability = [(("A", "B"), 1/20), (("B", "C"), 1/20), (("C", "D"), 1/20)]
     , pacUCreateWerner = [(("A", "B"), w0), (("B", "C"), w0), (("C", "D"), w0)]
     , pacSwapProbability = [("B", 1/2), ("C", 1/2)]
     , pacCoherenceTime = [("A", tCoh), ("B", tCoh), ("C", tCoh), ("D", tCoh)]
@@ -177,6 +157,26 @@ actionConfig w0 tCoh = PAC
     , (("A", "D"), 3)
     ]
     }
+
+-- -- Case 2: heterogeneous, sequential is better cause it fixes the optimal swap (start from the right swap, then the left one)
+-- actionConfig :: Double -> Int -> ProbabilisticActionConfiguration
+-- actionConfig w0 tCoh = PAC
+--     { pacTransmitProbability = []
+--     , pacCreateProbability = []
+--     , pacCreateWerner = []
+--     , pacUCreateProbability = [(("A", "B"), 1/20), (("B", "C"), 1/20), (("C", "D"), 1/200)]
+--     , pacUCreateWerner = [(("A", "B"), w0), (("B", "C"), w0), (("C", "D"), w0)]
+--     , pacSwapProbability = [("B", 1/2), ("C", 1/2)]
+--     , pacCoherenceTime = [("A", tCoh), ("B", tCoh), ("C", tCoh), ("D", tCoh)]
+--     , pacDistances =
+--     [ (("A", "B"), 1)
+--     , (("B", "C"), 1)
+--     , (("C", "D"), 1)
+--     , (("A", "C"), 2)
+--     , (("B", "D"), 2)
+--     , (("A", "D"), 3)
+--     ]
+--     }
 
 -- Case 3: heterogeneous, but on the other side (start from the left swap, then the right one is better)
 -- actionConfig :: Double -> Int -> ProbabilisticActionConfiguration

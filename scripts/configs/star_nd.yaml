@@ -1,0 +1,31 @@
+executable: quantP_analyze_star
+mode: qmdp
+coverage: 0.99
+ev_eta: "A-C or A=C or B-C or B=C"
+ev_opt: "A-C"
+evs:
+  - name: AC_pure
+    event: "A-C"
+    extrema: ["max"]
+  - name: AC_mixed
+    event: "A=C"
+    extrema: ["max"]
+  - name: BC_pure
+    event: "B-C"
+    extrema: ["max"]
+  - name: BC_mixed
+    event: "B=C"
+    extrema: ["max"]
+derived:
+  - name: AC_pmf
+    sum: [AC_pure, AC_mixed]
+    extrema: ["max"]
+  - name: AC_werner
+    ratio: [AC_pure, AC_pmf]
+    extrema: ["max"]
+  - name: BC_pmf
+    sum: [BC_pure, BC_mixed]
+    extrema: ["max"]
+  - name: BC_werner
+    ratio: [BC_pure, BC_pmf]
+    extrema: ["max"]

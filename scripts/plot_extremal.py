@@ -274,7 +274,7 @@ def plot_average_werner(plt, output_dir, file_stem, t, werner_min, werner_max):
     ax.set_xlabel(r"$t$")
     ax.set_ylabel("Average Werner parameter")
     ax.set_xlim(min(t), max(t))
-    ax.set_ylim(0.0, 1.0)
+    # ax.set_ylim(0.0, 1.0)
     style_axes(ax)
     ax.legend(frameon=False, loc="best")
 

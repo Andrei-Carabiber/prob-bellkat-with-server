@@ -1,0 +1,19 @@
+executable: quantP_analyze_swap
+mode: qmdp
+coverage: 0.999
+ev_eta: "A-D or A=D"
+ev_opt: "A-D"
+evs:
+  - name: AD_pure
+    event: "A-D"
+    extrema: ["max"]
+  - name: AD_mixed
+    event: "A=D"
+    extrema: ["max"]
+derived:
+  - name: AD_pmf
+    sum: [AD_pure, AD_mixed]
+    extrema: ["max"]
+  - name: AD_werner
+    ratio: [AD_pure, AD_pmf]
+    extrema: ["max"]
