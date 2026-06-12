@@ -62,7 +62,7 @@ plot_static() {
 	if [ "$plotting_enabled" = false ]; then
 		return
 	fi
-	python3 scripts/plot_extremal.py "$output_dir/${stem}.json" --output-dir "$figure_dir"
+	python3 -m scripts.plot.plot_extremal "$output_dir/${stem}.json" --output-dir "$figure_dir"
 }
 
 plot_pure_mixed() {
@@ -71,7 +71,7 @@ plot_pure_mixed() {
 	if [ "$plotting_enabled" = false ]; then
 		return
 	fi
-	python3 scripts/plot_extremal.py --pure-json "$output_dir/${stem}_pure.json" --mixed-json "$output_dir/${stem}_mixed.json" --output-dir "$figure_dir"
+	python3 -m scripts.plot.plot_extremal --pure-json "$output_dir/${stem}_pure.json" --mixed-json "$output_dir/${stem}_mixed.json" --output-dir "$figure_dir"
 }
 
 run_pure_mixed_case() {

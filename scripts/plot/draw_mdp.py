@@ -10,7 +10,7 @@ the script uses it to mark the initial state and goal states.
 
 Basic usage
 -----------
-    python scripts/draw_mdp.py output/quantPa.json
+    python -m scripts.plot.draw_mdp output/quantPa.json
 
 This writes, by default:
     output/figures/mdp/quantPa_mdp.tex
@@ -20,17 +20,17 @@ This writes, by default:
 Useful variants
 ---------------
     # Only write TeX, without invoking LaTeX/dvisvgm.
-    python scripts/draw_mdp.py output/quantPa.json --no-render
+    python -m scripts.plot.draw_mdp output/quantPa.json --no-render
 
     # Ignore any previous coordinate cache and recompute the layout.
-    python scripts/draw_mdp.py output/quantPa.json --no-reuse-layout
+    python -m scripts.plot.draw_mdp output/quantPa.json --no-reuse-layout
 
     # Make a wider drawing with more separation between sibling outcomes.
-    python scripts/draw_mdp.py output/quantPa.json \
+    python -m scripts.plot.draw_mdp output/quantPa.json \
         --sibling-x-gap 3.4 --outcome-group-gap 1.4 --state-x-gap 3.2
 
     # Make the vertical layout looser.
-    python scripts/draw_mdp.py output/quantPa.json \
+    python -m scripts.plot.draw_mdp output/quantPa.json \
         --state-y-gap 4.0 --action-y-offset 1.2 --label-y-offset 2.2
 
 Layout model

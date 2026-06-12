@@ -63,33 +63,12 @@ pSim = while ("A" /~? "D")
     )
 
 
-pOpt :: QBKATPolicy
-pOpt = while ("A" /~? "D")
-    (
-        pGen
-        <||>
-            sswap ["B", "C"] ("A", "D")
-        <||>
-            swap "B" ("A", "D")
-        <||>
-            swap "C" ("A", "D")
-        <||>
-            swap "B" ("A", "C")
-        <||>
-            idle [("A", "B"), ("B", "C")]
-        <||>
-            swap "C" ("B", "D")
-        <||>
-            idle [("B", "C"), ("C", "D")]
-    )
-
 protocols :: [(String, QBKATPolicy)]
 protocols =
     [ ("asap", pASAP)
-    , ("seq1", pSeq1)
-    , ("seq2", pSeq2)
-    , ("sim", pSim)
-    , ("opt", pOpt)
+    , ("left-to-right", pSeq1)
+    , ("right-to-left", pSeq2)
+    , ("at-last", pSim)
     ]
 
 events :: [(String, QBKATTest)]
@@ -164,7 +143,7 @@ actionConfig w0 tCoh = PAC
     { pacTransmitProbability = []
     , pacCreateProbability = []
     , pacCreateWerner = []
-    , pacUCreateProbability = [(("A", "B"), 1/20), (("B", "C"), 1/20), (("C", "D"), 1/200)]
+    , pacUCreateProbability = [(("A", "B"), 1/200), (("B", "C"), 1/200), (("C", "D"), 1/2000)]
     , pacUCreateWerner = [(("A", "B"), w0), (("B", "C"), w0), (("C", "D"), w0)]
     , pacSwapProbability = [("B", 1/2), ("C", 1/2)]
     , pacCoherenceTime = [("A", tCoh), ("B", tCoh), ("C", tCoh), ("D", tCoh)]
@@ -178,29 +157,6 @@ actionConfig w0 tCoh = PAC
     ]
     }
 
--- Case 3: heterogeneous, but on the other side (start from the left swap, then the right one is better)
--- actionConfig :: Double -> Int -> ProbabilisticActionConfiguration
--- actionConfig w0 tCoh = PAC
---     { pacTransmitProbability = []
---     , pacCreateProbability = []
---     , pacCreateWerner = []
---     , pacUCreateProbability = [(("A", "B"), 1/200), (("B", "C"), 1/20), (("C", "D"), 1/20)]
---     , pacUCreateWerner = [(("A", "B"), w0), (("B", "C"), w0), (("C", "D"), w0)]
---     , pacSwapProbability = [("B", 1/2), ("C", 1/2)]
---     , pacCoherenceTime = [("A", tCoh), ("B", tCoh), ("C", tCoh), ("D", tCoh)]
---     , pacDistances =
---     [ (("A", "B"), 1)
---     , (("B", "C"), 1)
---     , (("C", "D"), 1)
---     , (("A", "C"), 2)
---     , (("B", "D"), 2)
---     , (("A", "D"), 3)
---     ]
---     }
-
-
-
-
 main :: IO ()
 main = do
     args <- getArgs
@@ -208,7 +164,7 @@ main = do
         either fail pure (stripExampleArgs args)
     protocol <- either fail pure (selectProtocol protocolName)
     ev <- either fail pure (selectEvent eventName)
-    let w0  = 97/100
-        tCoh = 5000
+    let w0  = 98/100
+        tCoh = 50000
     withArgs qbkatArgs $
         qbkatMainD (actionConfig w0 tCoh) nb ev protocol mempty

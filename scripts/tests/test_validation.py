@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from plot_extremal import derive_pmf_series, load_extremal_series
+from scripts.plot.plot_extremal import derive_pmf_series, load_extremal_series
 
 # SHOW_PLOTS=1 RUN_VALIDATION_RUNNER=1 pytest -s scripts/tests/test_validation.py
 TRUE_ENV_VALUES = {"1", "true", "yes", "on"}

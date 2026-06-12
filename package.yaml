@@ -401,10 +401,19 @@ executables:
       - OverloadedLists
     ghc-options:
       - -rtsopts
-  quantP_compare_swap:
+  quantP_compare_swap_4:
     dependencies:
       - bellkat
-    main: quantum-examples/P_compare_swap.hs
+    main: quantum-examples/P_compare_swap_4.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_swap_5:
+    dependencies:
+      - bellkat
+    main: quantum-examples/P_compare_swap_5.hs
     default-extensions:
       - OverloadedStrings
       - OverloadedLists
