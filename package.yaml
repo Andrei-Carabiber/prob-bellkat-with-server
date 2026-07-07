@@ -392,6 +392,42 @@ executables:
       - OverloadedLists
     ghc-options:
       - -rtsopts
+  quantP_deadlock_star_single_goal:
+    dependencies:
+      - bellkat
+    main: quantum-examples/deadlock/P_star_single_goal.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_deadlock_star_hub2:
+    dependencies:
+      - bellkat
+    main: quantum-examples/deadlock/P_star_hub2.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_deadlock_star_c3:
+    dependencies:
+      - bellkat
+    main: quantum-examples/deadlock/P_star_c3.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_deadlock_star_bad_scheduler:
+    dependencies:
+      - bellkat
+    main: quantum-examples/deadlock/P_star_bad_scheduler.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
   quantP_swapasap:
     dependencies: 
       - bellkat
