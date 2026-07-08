@@ -455,6 +455,79 @@ executables:
       - OverloadedLists
     ghc-options:
       - -rtsopts
+  quantP_compare_swap_5_multiplex:
+    dependencies:
+      - bellkat
+    main: quantum-examples/P_compare_swap_5_multiplex.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_validate_swap_schemes:
+    dependencies:
+      - bellkat
+    main: P_validate_swap_schemes.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NetworkConfig
+      - Common.SwapSchemes
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_swap_schemes:
+    dependencies:
+      - bellkat
+    main: P_compare_swap_schemes.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NetworkConfig
+      - Common.SwapSchemes
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_swap_parameters:
+    dependencies:
+      - bellkat
+    main: P_compare_swap_parameters.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NetworkConfig
+      - Common.SwapSchemes
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_nondet_goals:
+    dependencies:
+      - bellkat
+    main: P_compare_nondet_goals.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NetworkConfig
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_nondet_protocols:
+    dependencies:
+      - bellkat
+    main: quantum-examples/infocom/P_compare_nondet_protocols.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
   quantPa:
     dependencies: 
       - bellkat

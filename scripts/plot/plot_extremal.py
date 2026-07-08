@@ -22,6 +22,7 @@ from scripts.plot.config import (
 COLOR_MIN = "#1b4f72"
 COLOR_MAX = "#b35a00"
 BAND_COLOR = "0.88"
+LINE_ALPHA = 0.78
 
 PMF_MIN_LABEL = r"$\Pr_{\min}(X=t)$"
 PMF_MAX_LABEL = r"$\Pr_{\max}(X=t)$"
@@ -167,6 +168,7 @@ def plot_pmf(plt, output_dir, file_stem, t, pmf_min, pmf_max, plot_profile):
         t,
         pmf_min,
         color=COLOR_MIN,
+        alpha=LINE_ALPHA,
         linestyle="-",
         label=PMF_MIN_LABEL,
     )
@@ -174,6 +176,7 @@ def plot_pmf(plt, output_dir, file_stem, t, pmf_min, pmf_max, plot_profile):
         t,
         pmf_max,
         color=COLOR_MAX,
+        alpha=LINE_ALPHA,
         linestyle="--",
         label=PMF_MAX_LABEL,
     )
@@ -203,6 +206,7 @@ def plot_cdf(plt, output_dir, file_stem, t, cdf_min, cdf_max, plot_profile):
         t,
         cdf_min,
         color=COLOR_MIN,
+        alpha=LINE_ALPHA,
         linestyle="-",
         label=CDF_MIN_LABEL,
     )
@@ -210,6 +214,7 @@ def plot_cdf(plt, output_dir, file_stem, t, cdf_min, cdf_max, plot_profile):
         t,
         cdf_max,
         color=COLOR_MAX,
+        alpha=LINE_ALPHA,
         linestyle="--",
         label=CDF_MAX_LABEL,
     )
@@ -254,6 +259,7 @@ def plot_average_quantity(
         t,
         values_min,
         color=COLOR_MIN,
+        alpha=LINE_ALPHA,
         linestyle="-",
         label=min_label,
     )
@@ -261,6 +267,7 @@ def plot_average_quantity(
         t,
         values_max,
         color=COLOR_MAX,
+        alpha=LINE_ALPHA,
         linestyle="--",
         label=max_label,
     )

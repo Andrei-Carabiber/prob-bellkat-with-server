@@ -1,6 +1,7 @@
 import argparse
 import csv
 import math
+import os
 import subprocess
 import time
 from dataclasses import dataclass, replace
@@ -36,7 +37,8 @@ QMDP_MODE = "qmdp"
 STATIC_EVENT = "static"
 PURE_EVENT = "pure"
 MIXED_EVENT = "mixed"
-COLORS = ("#cddb87", "#ee7833", "#01b56c", "#cc9cff", "#7c0006")
+COLORS = ("#cddb87","#ee7833", "#7c0006", "#cc9cff", "#01b56c")
+LINE_ALPHA = 0.65
 
 PMF_ASSERTION_TOLERANCE = 1e-4
 PMF_PLOT_KIND = "pmf"
@@ -115,7 +117,7 @@ def parse_args(config):
     parser.add_argument(
         "--executable",
         default=config.executable,
-        help="Cabal executable name.",
+        help="Cabal executable name, or path to an already-built executable.",
     )
     parser.add_argument(
         "--validate-deterministic-extrema",
@@ -150,6 +152,11 @@ def parse_args(config):
         ),
     )
     parser.add_argument(
+        "--show-skr-legend",
+        action="store_true",
+        help="Append each protocol's secret key rate, in scientific notation, to plot legends.",
+    )
+    parser.add_argument(
         "--plots-only",
         "--plots_only",
         action="store_true",
@@ -164,30 +171,137 @@ def parse_args(config):
         action="store_true",
         help="Skip the initial cabal build step.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Run one tiny protocol case with truncation 1 under a smoke output directory.",
+    )
+    args = parser.parse_args()
+    if args.smoke_test:
+        if args.plots_only:
+            parser.error("--smoke-test cannot be combined with --plots-only.")
+        smoke_protocol = "doubling" if "doubling" in config.default_protocols else config.default_protocols[0]
+        if not args.protocol:
+            args.protocol = [smoke_protocol]
+        args.coverage = None
+        args.truncation = 1
+        args.output_dir = str(Path(args.output_dir) / "smoke")
+        args.figure_dir = str(Path(args.figure_dir) / "smoke")
+    return args
 
 
-def run_command(command, stdout_path=None):
+def format_duration(seconds):
+    seconds = int(seconds)
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{seconds:02d}s"
+    if minutes:
+        return f"{minutes}m{seconds:02d}s"
+    return f"{seconds}s"
+
+
+def validate_extremal_json(path, *, require_coverage=False):
+    path = Path(path)
+    if not path.is_file():
+        return False, "file does not exist"
+    if path.stat().st_size == 0:
+        return False, "file is empty"
+
+    try:
+        payload = load_extremal_payload(path)
+    except (OSError, UnicodeError, ValueError) as exc:
+        return False, f"cannot parse JSON: {exc}"
+
+    if not isinstance(payload, dict):
+        return False, "missing extremal object"
+    if not isinstance(payload.get("series"), dict):
+        return False, "missing extremal.series object"
+    if payload.get("resolved_budget") is None:
+        return False, "missing extremal.resolved_budget"
+    if require_coverage and not isinstance(payload.get("coverage_status"), dict):
+        return False, "missing extremal.coverage_status object"
+    return True, None
+
+
+def run_command(command, stdout_path=None, status_label=None, heartbeat_seconds=30):
     started = time.perf_counter()
-    if stdout_path is None:
-        result = subprocess.run(command, text=True, capture_output=True)
-    else:
-        with open(stdout_path, "w", encoding="utf-8") as stdout_handle:
-            result = subprocess.run(
-                command,
-                text=True,
-                stdout=stdout_handle,
-                stderr=subprocess.PIPE,
-            )
+    stdout_handle = None
+    stdout_target = subprocess.PIPE
+    final_stdout_path = None
+    temporary_stdout_path = None
+    if stdout_path is not None:
+        final_stdout_path = Path(stdout_path)
+        temporary_stdout_path = final_stdout_path.with_name(
+            f".{final_stdout_path.name}.tmp-{os.getpid()}"
+        )
+        stdout_handle = open(temporary_stdout_path, "w", encoding="utf-8")
+        stdout_target = stdout_handle
+
+    process = subprocess.Popen(
+        command,
+        text=True,
+        stdout=stdout_target,
+        stderr=subprocess.PIPE,
+    )
+    stderr = ""
+    try:
+        while True:
+            try:
+                _, stderr = process.communicate(timeout=heartbeat_seconds)
+                break
+            except subprocess.TimeoutExpired:
+                if status_label:
+                    elapsed = time.perf_counter() - started
+                    print(
+                        f"[progress] {status_label}: still running after "
+                        f"{format_duration(elapsed)}",
+                        flush=True,
+                    )
+    finally:
+        if stdout_handle is not None:
+            stdout_handle.close()
+
     elapsed = time.perf_counter() - started
 
-    if result.returncode != 0:
+    if process.returncode != 0:
+        if temporary_stdout_path is not None:
+            temporary_stdout_path.unlink(missing_ok=True)
         command_text = " ".join(command)
         raise SystemExit(
-            f"Command failed after {elapsed:.2f}s: {command_text}\n{result.stderr}"
+            f"Command failed after {elapsed:.2f}s: {command_text}\n{stderr}"
+        )
+
+    if temporary_stdout_path is not None:
+        temporary_stdout_path.replace(final_stdout_path)
+
+    if status_label:
+        print(
+            f"[progress] {status_label}: finished in {format_duration(elapsed)}",
+            flush=True,
         )
 
     return elapsed
+
+
+def executable_command(executable):
+    path = Path(executable)
+    is_path = path.is_absolute() or os.sep in executable or (
+        os.altsep is not None and os.altsep in executable
+    )
+    if is_path or path.is_file():
+        return [str(path)]
+    return ["cabal", "run", "-v0", executable, "--"]
+
+
+def build_command(executable):
+    path = Path(executable)
+    is_path = path.is_absolute() or os.sep in executable or (
+        os.altsep is not None and os.altsep in executable
+    )
+    if is_path or path.is_file():
+        return None
+    return ["cabal", "build", executable]
 
 
 def output_json_path(output_dir, file_prefix, protocol, mode, event):
@@ -219,11 +333,7 @@ def run_extremal_case(
     output_path,
 ):
     command = [
-        "cabal",
-        "run",
-        "-v0",
-        executable,
-        "--",
+        *executable_command(executable),
         "--protocol",
         protocol,
         "--event",
@@ -234,7 +344,8 @@ def run_extremal_case(
         budget_flag,
         str(budget_value),
     ]
-    elapsed = run_command(command, stdout_path=output_path)
+    status_label = f"{protocol} {mode}/{event}"
+    elapsed = run_command(command, stdout_path=output_path, status_label=status_label)
     return output_path, elapsed
 
 
@@ -562,9 +673,28 @@ def compute_secret_key_rate_from_split(pure_path, mixed_path):
     return secret_key_rate(np.array(static_pmf), np.array(werner))
 
 
-def plot_combined_reachability(plt, figure_dir, protocol_series, plot_kind, config):
+def protocol_legend_label(protocol, skr_by_protocol, show_skr):
+    if not show_skr:
+        return protocol
+    skr = skr_by_protocol.get(protocol)
+    if skr is None:
+        return protocol
+    return f"{protocol} SKR={skr:.2e}"
+
+
+def plot_combined_reachability(
+    plt,
+    figure_dir,
+    protocol_series,
+    plot_kind,
+    config,
+    *,
+    skr_by_protocol=None,
+    show_skr=False,
+):
     fig, ax = plt.subplots()
     plot_profile = get_plot_profile(config.plot_profile)
+    skr_by_protocol = skr_by_protocol or {}
 
     for index, (protocol, series) in enumerate(protocol_series):
         if plot_kind == CDF_PLOT_KIND:
@@ -578,8 +708,9 @@ def plot_combined_reachability(plt, figure_dir, protocol_series, plot_kind, conf
             t,
             reachability,
             color=color,
+            alpha=LINE_ALPHA,
             linestyle="-",
-            label=protocol,
+            label=protocol_legend_label(protocol, skr_by_protocol, show_skr),
         )
 
     ax.set_xlabel(TIME_AXIS_LABEL)
@@ -589,7 +720,7 @@ def plot_combined_reachability(plt, figure_dir, protocol_series, plot_kind, conf
     else:
         ax.set_ylabel("Probability")
     style_axes(ax)
-    ax.legend(frameon=False, loc="best", ncol=2)
+    ax.legend(frameon=False, loc="best", ncol=1 if show_skr else 2)
 
     figure_path = output_path(figure_dir, config.figure_prefix, f"mdp_{plot_kind}s", plot_profile)
     save_figure(fig, figure_path)
@@ -597,9 +728,19 @@ def plot_combined_reachability(plt, figure_dir, protocol_series, plot_kind, conf
     print(f"Saved {plot_kind.upper()}s figure to {figure_path}")
 
 
-def plot_combined_quality(plt, figure_dir, protocol_paths, config, *, quality):
+def plot_combined_quality(
+    plt,
+    figure_dir,
+    protocol_paths,
+    config,
+    *,
+    quality,
+    skr_by_protocol=None,
+    show_skr=False,
+):
     fig, ax = plt.subplots()
     plot_profile = get_plot_profile(config.plot_profile)
+    skr_by_protocol = skr_by_protocol or {}
 
     for index, (protocol, pure_path, mixed_path) in enumerate(protocol_paths):
         pure_series = load_extremal_series(pure_path)
@@ -628,8 +769,9 @@ def plot_combined_quality(plt, figure_dir, protocol_paths, config, *, quality):
             t,
             values,
             color=color,
+            alpha=LINE_ALPHA,
             linestyle="-",
-            label=protocol,
+            label=protocol_legend_label(protocol, skr_by_protocol, show_skr),
         )
 
     ax.set_xlabel(TIME_AXIS_LABEL)
@@ -639,12 +781,12 @@ def plot_combined_quality(plt, figure_dir, protocol_paths, config, *, quality):
         suffix = "qmdp_fids"
     else:
         ax.set_ylabel(r"Werner parameter")
-        ax.set_ylim(0.0, 1.0)
+        # ax.set_ylim(0.0, 1.0)
         suffix = "qmdp_ws"
 
     style_axes(ax)
     if ax.get_legend_handles_labels()[0]:
-        ax.legend(frameon=False, loc="best", ncol=2)
+        ax.legend(frameon=False, loc="best", ncol=1 if show_skr else 2)
 
     figure_path = output_path(figure_dir, config.figure_prefix, suffix, plot_profile)
     save_figure(fig, figure_path)
@@ -660,8 +802,11 @@ def plot_joint_pmf_quality(
     config,
     *,
     quality,
+    skr_by_protocol=None,
+    show_skr=False,
 ):
     plot_profile = get_plot_profile(config.plot_profile)
+    skr_by_protocol = skr_by_protocol or {}
     width, height = plot_profile.figure_size
     fig, (pmf_ax, quality_ax) = plt.subplots(
         2,
@@ -679,8 +824,9 @@ def plot_joint_pmf_quality(
             t,
             pmf,
             color=color,
+            alpha=LINE_ALPHA,
             linestyle="-",
-            label=protocol,
+            label=protocol_legend_label(protocol, skr_by_protocol, show_skr),
         )
 
     for index, (protocol, pure_path, mixed_path) in enumerate(protocol_paths):
@@ -710,8 +856,9 @@ def plot_joint_pmf_quality(
             t,
             values,
             color=color,
+            alpha=LINE_ALPHA,
             linestyle="-",
-            label=protocol,
+            label=protocol_legend_label(protocol, skr_by_protocol, show_skr),
         )
 
     pmf_ax.set_ylabel("Probability")
@@ -720,14 +867,14 @@ def plot_joint_pmf_quality(
         suffix = "pmfs_fids"
     else:
         quality_ax.set_ylabel(r"Werner parameter")
-        quality_ax.set_ylim(0.0, 1.0)
+        # quality_ax.set_ylim(0.0, 1.0)
         suffix = "pmfs_ws"
     quality_ax.set_xlabel(TIME_AXIS_LABEL)
 
     style_axes(pmf_ax)
     style_axes(quality_ax)
     if pmf_ax.get_legend_handles_labels()[0]:
-        pmf_ax.legend(frameon=False, loc="best", ncol=2)
+        pmf_ax.legend(frameon=False, loc="best", ncol=1 if show_skr else 2)
 
     fig.align_ylabels((pmf_ax, quality_ax))
     figure_path = output_path(figure_dir, config.figure_prefix, suffix, plot_profile)
@@ -741,7 +888,12 @@ def run_comparison(config):
     validate_budget_args(args)
 
     if not args.no_build and not args.plots_only:
-        run_command(["cabal", "build", args.executable])
+        command = build_command(args.executable)
+        if command is not None:
+            run_command(
+                command,
+                status_label=f"cabal build {args.executable}",
+            )
 
     protocols = args.protocol or list(config.default_protocols)
     output_dir = Path(args.output_dir)
@@ -890,6 +1042,8 @@ def run_comparison(config):
     else:
         write_summary(output_dir / "timings.csv", rows)
 
+    skr_by_protocol = {row["protocol"]: row["skr"] for row in skr_rows}
+
     if args.plot_kind == BOTH_PLOT_KIND:
         plot_combined_reachability(
             plt,
@@ -897,6 +1051,8 @@ def run_comparison(config):
             reachability_protocol_series,
             PMF_PLOT_KIND,
             config,
+            skr_by_protocol=skr_by_protocol,
+            show_skr=args.show_skr_legend,
         )
         plot_combined_reachability(
             plt,
@@ -904,6 +1060,8 @@ def run_comparison(config):
             reachability_protocol_series,
             CDF_PLOT_KIND,
             config,
+            skr_by_protocol=skr_by_protocol,
+            show_skr=args.show_skr_legend,
         )
     else:
         plot_combined_reachability(
@@ -912,11 +1070,29 @@ def run_comparison(config):
             reachability_protocol_series,
             args.plot_kind,
             config,
+            skr_by_protocol=skr_by_protocol,
+            show_skr=args.show_skr_legend,
         )
 
-    plot_combined_quality(plt, figure_dir, werner_protocol_paths, config, quality="werner")
+    plot_combined_quality(
+        plt,
+        figure_dir,
+        werner_protocol_paths,
+        config,
+        quality="werner",
+        skr_by_protocol=skr_by_protocol,
+        show_skr=args.show_skr_legend,
+    )
     if args.plot_fidelity:
-        plot_combined_quality(plt, figure_dir, werner_protocol_paths, config, quality="fidelity")
+        plot_combined_quality(
+            plt,
+            figure_dir,
+            werner_protocol_paths,
+            config,
+            quality="fidelity",
+            skr_by_protocol=skr_by_protocol,
+            show_skr=args.show_skr_legend,
+        )
     if args.joint_plots:
         joint_quality = "fidelity" if args.plot_fidelity else "werner"
         plot_joint_pmf_quality(
@@ -926,6 +1102,8 @@ def run_comparison(config):
             werner_protocol_paths,
             config,
             quality=joint_quality,
+            skr_by_protocol=skr_by_protocol,
+            show_skr=args.show_skr_legend,
         )
 
     print("\nSecret key rates:")

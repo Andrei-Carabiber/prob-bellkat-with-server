@@ -5,21 +5,20 @@ from scripts.analysis.swap_comparison.common import ComparisonConfig, run_compar
 
 CONFIG = ComparisonConfig(
     description=(
-        "Run the 5-node P-swap comparison protocols through the MDP and QMDP "
-        "pipelines, then plot their reachability and Werner curves together."
+        "Run the 5-node topology-aware swap-scheme comparison through the MDP "
+        "and QMDP pipelines, then plot reachability and Werner curves together."
     ),
     default_protocols=(
-        "asap",
-        "left-to-right",
-        "right-to-left",
-        "at-last",
         "doubling",
+        "left-to-right",
+        "swap-asap",
+        "right-to-left",
     ),
-    executable="quantP_compare_swap_5",
-    output_dir="output/pswap-comparison-5",
-    figure_dir="output/pswap-comparison-5",
-    file_prefix="pswap5",
-    figure_prefix="pswap5",
+    executable="quantP_compare_swap_schemes",
+    output_dir="output/swap-schemes",
+    figure_dir="output/swap-schemes",
+    file_prefix="swap-schemes",
+    figure_prefix="swap-schemes",
 )
 
 
