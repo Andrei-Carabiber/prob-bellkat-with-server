@@ -10,7 +10,7 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.plot.config import DEFAULT_PROFILE, PLOT_SETTINGS
-from scripts.validate_swap_schemes_5node import PROTOCOLS, run_validation
+from scripts.validation.validate_swap_schemes import PROTOCOLS, run_validation
 
 
 def parse_args() -> argparse.Namespace:
