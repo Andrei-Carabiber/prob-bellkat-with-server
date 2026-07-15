@@ -25,12 +25,14 @@ from scripts.analysis.swap_comparison.common import (
     compute_secret_key_rate_from_split,
     executable_command,
     format_duration,
+    load_extremal_payload,
     load_extremal_series,
     run_command,
-    validate_extremal_json,
 )
 from scripts.plot.config import (
     DEFAULT_PROFILE,
+    OPTIMALITY_HEIGHT_INCHES,
+    OPTIMALITY_LINE_WIDTH_INCHES,
     PLOT_SETTINGS,
     configure_matplotlib,
     get_plot_profile,
@@ -48,7 +50,7 @@ FIGURE_PREFIX = "distillation_comparison"
 DEFAULT_OUTPUT_DIR = Path("output/distillation-comparison")
 DEFAULT_TRUNCATION = 5000
 DEFAULT_P_GE_VALUES_A = "0.005,0.05,0.5"
-DEFAULT_W0_VALUES_A = "0.94,0.955,0.970"
+DEFAULT_W0_VALUES_A = "0.925,0.94,0.955,0.970"
 
 
 @dataclass(frozen=True)
@@ -69,7 +71,7 @@ class PointResult:
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Compare swap against dist-swap on A-X-Y-C and plot "
+            "Compare plain swap against X-Y-only dist-swap on A-X-Y-C and plot "
             "SKR_swap / SKR_dist-swap over p_ge and w0."
         )
     )
@@ -101,7 +103,20 @@ def parse_args():
     parser.add_argument("--plot-profile", choices=tuple(PLOT_SETTINGS), default=DEFAULT_PROFILE)
     parser.add_argument("--executable", default="quantP_compare_distillation")
     parser.add_argument("--plots-only", action="store_true")
-    parser.add_argument("--resume", action="store_true")
+    cache_group = parser.add_mutually_exclusive_group()
+    cache_group.add_argument(
+        "--resume",
+        dest="reuse_existing",
+        action="store_true",
+        default=True,
+        help="Reuse valid results at the requested truncation (default).",
+    )
+    cache_group.add_argument(
+        "--force",
+        dest="reuse_existing",
+        action="store_false",
+        help="Recompute every result even when a matching cached JSON exists.",
+    )
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--smoke-test", action="store_true")
     args = parser.parse_args()
@@ -205,12 +220,50 @@ def json_path(data_dir: Path, point: DistillationPoint, protocol: str, event: st
     return data_dir / f"{FILE_PREFIX}_{scenario_tag(point)}_{protocol}_{QMDP_MODE}_{event}.json"
 
 
-def existing_json_path(data_dir: Path, point: DistillationPoint, protocol: str, event: str) -> Path:
+def existing_json_path(
+    data_dir: Path,
+    point: DistillationPoint,
+    protocol: str,
+    event: str,
+    expected_truncation: int,
+) -> Path:
     path = json_path(data_dir, point, protocol, event)
-    valid, reason = validate_extremal_json(path)
-    if valid:
-        return path
-    raise SystemExit(f"Unusable existing JSON: {path} ({reason})")
+    if not path.is_file():
+        raise SystemExit(f"Unusable existing JSON: {path} (file does not exist)")
+    if path.stat().st_size == 0:
+        raise SystemExit(f"Unusable existing JSON: {path} (file is empty)")
+    try:
+        payload = load_extremal_payload(path)
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise SystemExit(f"Unusable existing JSON: {path} (cannot parse JSON: {exc})") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Unusable existing JSON: {path} (missing extremal object)")
+    if not isinstance(payload.get("series"), dict):
+        raise SystemExit(f"Unusable existing JSON: {path} (missing extremal.series object)")
+
+    resolved_budget = payload.get("resolved_budget")
+    try:
+        actual_truncation = int(resolved_budget)
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(
+            f"Unusable existing JSON: {path} "
+            f"(invalid truncation {resolved_budget!r})"
+        ) from exc
+    if actual_truncation != expected_truncation:
+        raise SystemExit(
+            f"Unusable existing JSON: {path} "
+            f"(truncation {resolved_budget}, expected {expected_truncation})"
+        )
+    return path
+
+
+def build_if_needed(args) -> None:
+    if args.no_build or args.plots_only or args.build_performed:
+        return
+    command = build_command(args.executable)
+    if command is not None:
+        run_command(command, status_label=f"cabal build {args.executable}")
+    args.build_performed = True
 
 
 def ensure_protocol_jsons(
@@ -223,14 +276,21 @@ def ensure_protocol_jsons(
     for event in (STATIC_EVENT, PURE_EVENT, MIXED_EVENT):
         target_path = json_path(data_dir, point, protocol, event)
         reused = False
-        if args.plots_only:
-            paths.append(existing_json_path(data_dir, point, protocol, event))
-            continue
-        if args.resume:
+        if args.plots_only or args.reuse_existing:
             try:
-                paths.append(existing_json_path(data_dir, point, protocol, event))
+                paths.append(
+                    existing_json_path(
+                        data_dir,
+                        point,
+                        protocol,
+                        event,
+                        args.truncation,
+                    )
+                )
                 reused = True
             except SystemExit as exc:
+                if args.plots_only:
+                    raise
                 print(f"{exc}; rerunning {protocol} {event}", flush=True)
                 paths.append(target_path)
         else:
@@ -238,6 +298,7 @@ def ensure_protocol_jsons(
         if reused:
             print(f"{scenario_tag(point)} {protocol} {event}: reused {paths[-1]}", flush=True)
             continue
+        build_if_needed(args)
         command = [
             *executable_command(args.executable),
             "--protocol",
@@ -253,6 +314,7 @@ def ensure_protocol_jsons(
         ]
         status_label = f"{scenario_tag(point)} {protocol} {event}"
         elapsed = run_command(command, stdout_path=paths[-1], status_label=status_label)
+        args.executed_cases += 1
         print(f"{status_label}: {elapsed:.2f}s -> {paths[-1]}", flush=True)
     return paths[0], paths[1], paths[2]
 
@@ -351,7 +413,9 @@ def plot_ratio(plt, figure_dir: Path, results: dict[DistillationPoint, PointResu
         dtype=float,
     )
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(
+        figsize=(OPTIMALITY_LINE_WIDTH_INCHES, OPTIMALITY_HEIGHT_INCHES)
+    )
     finite_ratio = ratio[np.isfinite(ratio)]
     contour_kwargs = {"levels": 21, "cmap": "BrBG"}
     if finite_ratio.size > 0:
@@ -363,8 +427,8 @@ def plot_ratio(plt, figure_dir: Path, results: dict[DistillationPoint, PointResu
     heatmap = ax.contourf(x, y, np.ma.masked_invalid(ratio), **contour_kwargs)
     ax.set_xscale("log")
     ax.xaxis.set_minor_locator(NullLocator())
-    ax.set_xlabel(r"Reference $p_{\mathrm{ge}}$")
-    ax.set_ylabel(r"Reference Werner parameter $w_0$")
+    ax.set_xlabel(r"Generation success probability $p_{\mathrm{ge}}$")
+    ax.set_ylabel(r"Initial Werner parameter $w_0$")
     ax.set_xticks(x)
     ax.set_yticks(y)
     ax.set_xticklabels([f"{value:.12g}" for value in x_values])
@@ -378,7 +442,7 @@ def plot_ratio(plt, figure_dir: Path, results: dict[DistillationPoint, PointResu
 
     plot_profile = get_plot_profile(args.plot_profile)
     figure_path = output_path(figure_dir, FIGURE_PREFIX, "swap_over_dist_swap", plot_profile)
-    save_figure(fig, figure_path)
+    save_figure(fig, figure_path, bbox_inches=None)
     plt.close(fig)
     return figure_path
 
@@ -401,6 +465,7 @@ def write_report(markdown_path: Path, args, csv_path: Path, figure_path: Path | 
         f"- `p_swap={value_text(args.p_swap)}`",
         f"- `t_coh={value_text(args.t_coh)}`",
         f"- `truncation={args.truncation}`",
+        "- `dist-swap`: distill `X-Y` only; generate `A-X` and `Y-C` once",
         f"- command: `{' '.join(sys.argv)}`",
         "",
         "## Data",
@@ -432,11 +497,8 @@ def main() -> None:
         data_dir.mkdir(parents=True, exist_ok=True)
     figure_dir.mkdir(parents=True, exist_ok=True)
 
-    if not args.no_build and not args.plots_only:
-        command = build_command(args.executable)
-        if command is not None:
-            run_command(command, status_label=f"cabal build {args.executable}")
-
+    args.build_performed = False
+    args.executed_cases = 0
     points = all_points(args)
     started = time.perf_counter()
     results = {}
@@ -445,6 +507,9 @@ def main() -> None:
         elapsed = time.perf_counter() - started
         print(f"[progress] point {index}/{len(points)} after {format_duration(elapsed)}: {scenario_tag(point)}", flush=True)
         results[point] = evaluate_point(point, data_dir, args, index=index, total=len(points))
+
+    if args.reuse_existing and not args.plots_only and args.executed_cases == 0:
+        print("All simulation results were reused; Cabal build and execution were skipped.", flush=True)
 
     csv_path = args.output_dir / f"{FILE_PREFIX}_skr.csv"
     write_csv(csv_path, results)

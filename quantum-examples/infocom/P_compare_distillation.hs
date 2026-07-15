@@ -37,15 +37,12 @@ elementaryLinks =
     , ("Y", "C")
     ]
 
--- Each elementary channel has two memory slots
--- intermediate and final links need one slot each.
+-- X-Y (holding two memory slots) are allowed 
 capacityPairs :: [(Location, Location)]
 capacityPairs =
     [ ("A", "X")
-    , ("A", "X")
     , ("X", "Y")
     , ("X", "Y")
-    , ("Y", "C")
     , ("Y", "C")
     , ("X", "C")
     , ("A", "C")
@@ -57,43 +54,22 @@ networkBounds = Net.networkBoundsFor capacityPairs
 taggedPair :: QBKATTag -> (Location, Location) -> TaggedBellPair QBKATTag
 taggedPair tag (left, right) = (left ~ right) .~ tag
 
--- p1: keep up to two raw pairs on each elementary link, then swap Y and X.
+-- p1: keep one raw pair on each elementary link, then swap Y and X.
 pSwap :: QBKATPolicy
 pSwap =
     while (hasNotSubset [("A" ~ "C") .~ rawTag])
         (
-            -- First guarded create fires when there is room for a second raw pair;
-            -- second guarded create fires only when the link is empty.
-            (
-                (
-                    ite (hasNotSubset [("A" ~ "X") .~ rawTag, ("A" ~ "X") .~ rawTag])
-                        (ucreate ("A", "X") .~ rawTag)
-                        mempty
-                <||>
-                    ite (hasNotSubset [("A" ~ "X") .~ rawTag])
-                        (ucreate ("A", "X") .~ rawTag)
-                        mempty
-                )
+            (   ite (hasNotSubset [("A" ~ "X") .~ rawTag])
+                    (ucreate ("A", "X") .~ rawTag)
+                    mempty
             <||>
-                (
-                    ite (hasNotSubset [("X" ~ "Y") .~ rawTag, ("X" ~ "Y") .~ rawTag])
-                        (ucreate ("X", "Y") .~ rawTag)
-                        mempty
-                <||>
-                    ite (hasNotSubset [("X" ~ "Y") .~ rawTag])
-                        (ucreate ("X", "Y") .~ rawTag)
-                        mempty
-                )
+                ite (hasNotSubset [("X" ~ "Y") .~ rawTag])
+                    (ucreate ("X", "Y") .~ rawTag)
+                    mempty
             <||>
-                (
-                    ite (hasNotSubset [("Y" ~ "C") .~ rawTag, ("Y" ~ "C") .~ rawTag])
-                        (ucreate ("Y", "C") .~ rawTag)
-                        mempty
-                <||>
-                    ite (hasNotSubset [("Y" ~ "C") .~ rawTag])
-                        (ucreate ("Y", "C") .~ rawTag)
-                        mempty
-                )
+                ite (hasNotSubset [("Y" ~ "C") .~ rawTag])
+                    (ucreate ("Y", "C") .~ rawTag)
+                    mempty
             )
             <>
             -- Build the right half X-C from X-Y and Y-C.
@@ -105,29 +81,16 @@ pSwap =
             rawTag ~. (swap "X" ("A", "C") .~ rawTag)
         )
 
--- p2: for each elementary link, wait for two raw pairs and distill before swapping.
+-- p2: generate A-X and Y-C once, and distill only X-Y before swapping.
 pDistSwap :: QBKATPolicy
 pDistSwap =
     while (hasNotSubset [("A" ~ "C") .~ distilledTag])
         (
-            (
-                -- Prepare distilled A-X.
+            (   -- The outer links are generated once.  They use the protocol
+                -- tag so the current uniform-input-tag swap action can consume
+                -- them together with the distilled X-Y pair.
                 ite (hasNotSubset [("A" ~ "X") .~ distilledTag])
-                    (
-                        (
-                            ite (hasNotSubset [("A" ~ "X") .~ rawTag, ("A" ~ "X") .~ rawTag])
-                                (ucreate ("A", "X") .~ rawTag)
-                                mempty
-                        <||>
-                            ite (hasNotSubset [("A" ~ "X") .~ rawTag])
-                                (ucreate ("A", "X") .~ rawTag)
-                                mempty
-                        )
-                        <>
-                        ite (hasSubset [("A" ~ "X") .~ rawTag, ("A" ~ "X") .~ rawTag])
-                            (distill ("A", "X") .~ distilledTag)
-                            mempty
-                    )
+                    (ucreate ("A", "X") .~ distilledTag)
                     mempty
             <||>
                 -- Prepare distilled X-Y.
@@ -149,23 +112,9 @@ pDistSwap =
                     )
                     mempty
             <||>
-                -- Prepare distilled Y-C.
+                -- Generate Y-C once.
                 ite (hasNotSubset [("Y" ~ "C") .~ distilledTag])
-                    (
-                        (
-                            ite (hasNotSubset [("Y" ~ "C") .~ rawTag, ("Y" ~ "C") .~ rawTag])
-                                (ucreate ("Y", "C") .~ rawTag)
-                                mempty
-                        <||>
-                            ite (hasNotSubset [("Y" ~ "C") .~ rawTag])
-                                (ucreate ("Y", "C") .~ rawTag)
-                                mempty
-                        )
-                        <>
-                        ite (hasSubset [("Y" ~ "C") .~ rawTag, ("Y" ~ "C") .~ rawTag])
-                            (distill ("Y", "C") .~ distilledTag)
-                            mempty
-                    )
+                    (ucreate ("Y", "C") .~ distilledTag)
                     mempty
             )
             <>

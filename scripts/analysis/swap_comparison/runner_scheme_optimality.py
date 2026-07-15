@@ -30,6 +30,10 @@ from scripts.analysis.swap_comparison.common import (
 from scripts.plot.config import (
     DEFAULT_PROFILE,
     JOINT_PLOTS_HSPACE,
+    OPTIMALITY_COMBINED_HEIGHT_INCHES,
+    OPTIMALITY_COMBINED_LINE_WIDTH_INCHES,
+    OPTIMALITY_HEIGHT_INCHES,
+    OPTIMALITY_LINE_WIDTH_INCHES,
     PLOT_SETTINGS,
     configure_matplotlib,
     get_plot_profile,
@@ -59,10 +63,10 @@ EVALUATION_A_W0 = 0.955
 EVALUATION_B_W0 = 0.955
 LOG_AXES = {"p-gen", "edge-skew"}
 AXIS_LABELS = {
-    "p-gen": r"Reference $p_{\mathrm{ge}}$",
-    "w0": r"Reference Werner parameter $w_0$",
+    "p-gen": r"Generation success probability $p_{\mathrm{ge}}$",
+    "w0": r"Initial Werner parameter $w_0$",
     "p-swap": r"Swap success probability $p_{\mathrm{sw}}$",
-    "edge-skew": r"Right-edge skew penalty $\eta$",
+    "edge-skew": r"Generation success penalty $\eta$",
 }
 
 
@@ -711,7 +715,12 @@ def draw_ratio(fig, ax, job: RatioJob, results: dict[SchemePoint, PointResult], 
     ax.set_ylabel(axis_label(job.y_axis))
     ax.set_xticks(x)
     ax.set_yticks(y)
-    ax.set_xticklabels([tick_label(require_axis_number(job.x_axis, value)) for value in x_values])
+    ax.set_xticklabels(
+        [tick_label(require_axis_number(job.x_axis, value)) for value in x_values],
+        rotation=45,
+        ha="right",
+        rotation_mode="anchor",
+    )
     ax.set_yticklabels([tick_label(require_axis_number(job.y_axis, value)) for value in y_values])
     # ax.set_title(job.numerator_label + " over swap-asap")
     style_axes(ax)
@@ -719,12 +728,14 @@ def draw_ratio(fig, ax, job: RatioJob, results: dict[SchemePoint, PointResult], 
 
 
 def plot_ratio(plt, figure_dir: Path, job: RatioJob, results: dict[SchemePoint, PointResult], args) -> Path:
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(
+        figsize=(OPTIMALITY_LINE_WIDTH_INCHES, OPTIMALITY_HEIGHT_INCHES)
+    )
     draw_ratio(fig, ax, job, results, args, show_xlabel=True)
 
     plot_profile = get_plot_profile(args.plot_profile)
     figure_path = output_path(figure_dir, FIGURE_PREFIX, job.name, plot_profile)
-    save_figure(fig, figure_path)
+    save_figure(fig, figure_path, bbox_inches=None)
     plt.close(fig)
     return figure_path
 
@@ -732,12 +743,14 @@ def plot_ratio(plt, figure_dir: Path, job: RatioJob, results: dict[SchemePoint, 
 def plot_joint_ratios(plt, figure_dir: Path, results: dict[SchemePoint, PointResult], args) -> Path:
     jobs = enabled_jobs(args)
     plot_profile = get_plot_profile(args.plot_profile)
-    width, height = plot_profile.figure_size
     fig, axes = plt.subplots(
         len(jobs),
         1,
         sharex=True,
-        figsize=(width, height * (1.7 if len(jobs) > 1 else 1.0)),
+        figsize=(
+            OPTIMALITY_COMBINED_LINE_WIDTH_INCHES,
+            OPTIMALITY_COMBINED_HEIGHT_INCHES,
+        ),
         gridspec_kw={"hspace": JOINT_PLOTS_HSPACE},
     )
     if len(jobs) == 1:
@@ -754,7 +767,7 @@ def plot_joint_ratios(plt, figure_dir: Path, results: dict[SchemePoint, PointRes
     fig.align_ylabels(axes)
 
     figure_path = output_path(figure_dir, FIGURE_PREFIX, "joint", plot_profile)
-    save_figure(fig, figure_path, tight_layout=False)
+    save_figure(fig, figure_path, tight_layout=False, bbox_inches=None)
     plt.close(fig)
     return figure_path
 
