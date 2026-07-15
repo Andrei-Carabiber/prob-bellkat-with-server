@@ -7,17 +7,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import matplotlib.patheffects as path_effects
 import numpy as np
+from matplotlib.lines import Line2D
 
 from scripts.analysis.swap_comparison.common import (
+    COLORS,
     build_command,
     executable_command,
     run_command,
-    COLORS
 )
 from scripts.plot.config import (
     TIME_AXIS_LABEL,
+    VALIDATION_COMBINED_HEIGHT_INCHES,
+    VALIDATION_COMBINED_LINE_WIDTH_INCHES,
+    VALIDATION_HEIGHT_INCHES,
+    VALIDATION_LINE_WIDTH_INCHES,
     configure_matplotlib,
     get_plot_profile,
     output_path,
@@ -34,32 +38,31 @@ from scripts.plot.plot_extremal import (
 PROTOCOLS = ("swap-asap", "doubling", "left-to-right", "right-to-left")
 GOODENOUGH_SEGMENTS = 4
 
-PROTOCOL_REFERENCE_COLORS = {
-    "swap-asap": "#0fb97e",
-    "left-to-right": "#a62424",
-    "doubling": "#563828",
-    "right-to-left": "#2454a6",
-}
-
 PROTOCOL_COLORS = {
     "swap-asap": COLORS[0],
     "left-to-right": COLORS[1],
+    "right-to-left": COLORS[1],
     "doubling": COLORS[2],
-    "right-to-left": COLORS[3],
 }
 
-REFERENCE_MARKER_ALPHA = 0.7
-LINE_ALPHA = 1
-REFERENCE_MARKER_SIZE = 3.5
-REFERENCE_MARKER_EDGE_WIDTH = 0.8
-REFERENCE_MARKER_EFFECTS = [
-    path_effects.Stroke(linewidth=1.6, foreground="white", alpha=0.95),
-    path_effects.Normal(),
-]
+REFERENCE_COLORS = {
+    "doubling": "#00B8D9",
+    "left-to-right": "#003B73",
+    "right-to-left": "#003B73",
+}
+QBKAT_PMF_LINESTYLE = ":"
+REFERENCE_PMF_LINESTYLE = "-."
+QBKAT_WERNER_LINESTYLE = "-"
+REFERENCE_WERNER_LINESTYLE = "--"
+REFERENCE_LINEWIDTH = 2.4
+PROTOCOL_LABELS = {
+    "left-to-right": "sequential",
+    "right-to-left": "sequential",
+}
 REFERENCE_LABELS = {
-    "doubling": r"Li et al.",
-    "left-to-right": r"La Corte et al. (L-to-R)",
-    "right-to-left": r"La Corte et al. (R-to-L)",
+    "doubling": r"Li \textit{et al.}",
+    "left-to-right": r"La Corte \textit{et al.}",
+    "right-to-left": r"La Corte \textit{et al.}",
 }
 PMF_KEYS = ("pmf", "delivery_pmf", "probabilities", "probability")
 CDF_KEYS = ("cdf", "delivery_cdf")
@@ -495,26 +498,31 @@ def plot_validation(
     swap_asap_oracle: float,
 ) -> dict[str, Path]:
     plot_profile = get_plot_profile(plot_profile_name)
-    fig, (pmf_ax, werner_ax) = plt.subplots(
-        2,
-        1,
-        sharex=True,
-        figsize=(plot_profile.figure_size[0], plot_profile.figure_size[1] * 1.55),
+    fig, pmf_ax = plt.subplots(
+        figsize=(
+            VALIDATION_COMBINED_LINE_WIDTH_INCHES,
+            VALIDATION_COMBINED_HEIGHT_INCHES,
+        )
     )
-    plot_pmf_curves(pmf_ax, series_by_protocol, references)
-    plot_werner_curves(werner_ax, series_by_protocol, references)
+    werner_ax = pmf_ax.twinx()
+    protocols = plot_combined_validation_curves(
+        pmf_ax,
+        werner_ax,
+        series_by_protocol,
+        references,
+    )
 
     pmf_ax.set_ylabel("Probability")
     werner_ax.set_ylabel("Average Werner parameter")
-    werner_ax.set_xlabel(TIME_AXIS_LABEL)
-    pmf_ax.legend(loc="best")
-    werner_ax.legend(loc="best")
+    pmf_ax.set_xlabel(TIME_AXIS_LABEL)
     style_axes(pmf_ax)
     style_axes(werner_ax)
+    werner_ax.grid(False)
+    add_combined_legends(pmf_ax, protocols)
 
     figure_dir.mkdir(parents=True, exist_ok=True)
     combined_path = output_path(figure_dir, file_prefix, "validation", plot_profile)
-    save_figure(fig, combined_path, tight_layout=True)
+    save_figure(fig, combined_path, tight_layout=True, bbox_inches=None)
     plt.close(fig)
 
     pmf_path = plot_pmf_validation(
@@ -540,41 +548,157 @@ def plot_validation(
     }
 
 
+def plotted_protocols(series_by_protocol: dict[str, ProtocolSeries]) -> tuple[str, ...]:
+    protocols = [
+        protocol
+        for protocol in ("swap-asap", "doubling")
+        if protocol in series_by_protocol
+    ]
+    sequential = next(
+        (
+            protocol
+            for protocol in ("left-to-right", "right-to-left")
+            if protocol in series_by_protocol
+        ),
+        None,
+    )
+    if sequential is not None:
+        protocols.append(sequential)
+    return tuple(protocols)
+
+
+def plot_combined_validation_curves(
+    pmf_ax: Any,
+    werner_ax: Any,
+    series_by_protocol: dict[str, ProtocolSeries],
+    references: dict[str, ReferenceSeries],
+) -> tuple[str, ...]:
+    protocols = plotted_protocols(series_by_protocol)
+    for protocol in protocols:
+        color = PROTOCOL_COLORS[protocol]
+        series = series_by_protocol[protocol]
+        pmf_ax.plot(
+            np.arange(len(series.pmf)),
+            series.pmf,
+            color=color,
+            linestyle=QBKAT_PMF_LINESTYLE,
+        )
+        werner_ax.plot(
+            np.arange(1, len(series.werner)),
+            series.werner[1:],
+            color=color,
+            linestyle=QBKAT_WERNER_LINESTYLE,
+        )
+
+    # References are drawn last so they remain visible over the nearly
+    # identical QBKAT curves.
+    for protocol in protocols:
+        reference = references.get(protocol)
+        if reference is None:
+            continue
+        color = PROTOCOL_COLORS[protocol]
+        if reference.pmf is not None:
+            pmf_ax.plot(
+                np.arange(len(reference.pmf)),
+                reference.pmf,
+                color=color,
+                linestyle=REFERENCE_PMF_LINESTYLE,
+                linewidth=REFERENCE_LINEWIDTH,
+            )
+        if reference.werner is not None:
+            werner_ax.plot(
+                np.arange(1, len(reference.werner)),
+                reference.werner[1:],
+                color=color,
+                linestyle=REFERENCE_WERNER_LINESTYLE,
+                linewidth=REFERENCE_LINEWIDTH,
+            )
+    return protocols
+
+
+def add_combined_legends(ax: Any, protocols: tuple[str, ...]) -> None:
+    series_handles = (
+        Line2D([], [], color="black", linestyle=QBKAT_PMF_LINESTYLE, label="QBKAT PMF"),
+        Line2D(
+            [],
+            [],
+            color="black",
+            linestyle=REFERENCE_PMF_LINESTYLE,
+            linewidth=REFERENCE_LINEWIDTH,
+            label="Reference PMF",
+        ),
+        Line2D([], [], color="black", linestyle=QBKAT_WERNER_LINESTYLE, label="QBKAT Werner"),
+        Line2D(
+            [],
+            [],
+            color="black",
+            linestyle=REFERENCE_WERNER_LINESTYLE,
+            linewidth=REFERENCE_LINEWIDTH,
+            label="Reference Werner",
+        ),
+    )
+    scheme_handles = tuple(
+        Line2D(
+            [],
+            [],
+            color=PROTOCOL_COLORS[protocol],
+            linestyle="-",
+            label=PROTOCOL_LABELS.get(protocol, protocol),
+        )
+        for protocol in protocols
+    )
+
+    scheme_legend = ax.legend(
+        handles=scheme_handles,
+        title="Color",
+        loc="lower left",
+        bbox_to_anchor=(0.0, 0.98),
+        ncol=1,
+        columnspacing=1.0,
+        labelspacing=0.35,
+        borderaxespad=0.0,
+    )
+    ax.add_artist(scheme_legend)
+    ax.legend(
+        handles=series_handles,
+        title="Line style",
+        loc="lower right",
+        bbox_to_anchor=(1.0, 0.98),
+        ncol=1,
+        columnspacing=1.0,
+        labelspacing=0.35,
+        borderaxespad=0.0,
+    )
+
+
 def plot_pmf_curves(
     ax: Any,
     series_by_protocol: dict[str, ProtocolSeries],
     references: dict[str, ReferenceSeries],
 ) -> None:
-    for protocol in PROTOCOLS:
-        if protocol not in series_by_protocol:
-            continue
-        marker_color = PROTOCOL_REFERENCE_COLORS.get(protocol)
+    protocols = plotted_protocols(series_by_protocol)
+    for protocol in protocols:
         color = PROTOCOL_COLORS.get(protocol)
         series = series_by_protocol[protocol]
 
         ax.plot(
             np.arange(len(series.pmf)),
             series.pmf,
-            label=protocol,
+            label=PROTOCOL_LABELS.get(protocol, protocol),
             color=color,
-            alpha=LINE_ALPHA,
-            zorder=2,
         )
 
+    # Draw references last and in a contrasting color. Their values nearly
+    # coincide with QBKAT, so a same-color overlay would hide the dash pattern.
+    for protocol in protocols:
         reference = references.get(protocol)
         if reference is not None and reference.pmf is not None:
             ax.plot(
                 np.arange(len(reference.pmf)),
                 reference.pmf,
-                linestyle="none",
-                marker="x",
-                markersize=REFERENCE_MARKER_SIZE,
-                markeredgewidth=REFERENCE_MARKER_EDGE_WIDTH,
-                color=marker_color,
-                alpha=REFERENCE_MARKER_ALPHA,
+                color=REFERENCE_COLORS[protocol],
+                linestyle="--",
                 label=REFERENCE_LABELS.get(protocol, r"reference"),
-                path_effects=REFERENCE_MARKER_EFFECTS,
-                zorder=5,
             )
 
 
@@ -584,35 +708,28 @@ def plot_werner_curves(
     series_by_protocol: dict[str, ProtocolSeries],
     references: dict[str, ReferenceSeries],
 ) -> None:
-    for protocol in PROTOCOLS:
-        if protocol not in series_by_protocol:
-            continue
+    protocols = plotted_protocols(series_by_protocol)
+    for protocol in protocols:
         color = PROTOCOL_COLORS.get(protocol)
-        marker_color = PROTOCOL_REFERENCE_COLORS.get(protocol)
         series = series_by_protocol[protocol]
         ax.plot(
             np.arange(1, len(series.werner)),
             series.werner[1:],
-            label=protocol,
+            label=PROTOCOL_LABELS.get(protocol, protocol),
             color=color,
-            alpha=LINE_ALPHA,
-            zorder=2,
         )
 
+    # Draw references last and in a contrasting color. Their values nearly
+    # coincide with QBKAT, so a same-color overlay would hide the dash pattern.
+    for protocol in protocols:
         reference = references.get(protocol)
         if reference is not None and reference.werner is not None:
             ax.plot(
                 np.arange(1, len(reference.werner)),
                 reference.werner[1:],
-                linestyle="none",
-                marker="x",
-                markersize=REFERENCE_MARKER_SIZE,
-                markeredgewidth=REFERENCE_MARKER_EDGE_WIDTH,
-                color=marker_color,
-                alpha=REFERENCE_MARKER_ALPHA,
+                color=REFERENCE_COLORS[protocol],
+                linestyle="--",
                 label=REFERENCE_LABELS.get(protocol, r"reference"),
-                path_effects=REFERENCE_MARKER_EFFECTS,
-                zorder=5,
             )
 
 
@@ -624,14 +741,16 @@ def plot_pmf_validation(
     series_by_protocol: dict[str, ProtocolSeries],
     references: dict[str, ReferenceSeries],
 ) -> Path:
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(
+        figsize=(VALIDATION_LINE_WIDTH_INCHES, VALIDATION_HEIGHT_INCHES)
+    )
     plot_pmf_curves(ax, series_by_protocol, references)
     ax.set_xlabel(TIME_AXIS_LABEL)
     ax.set_ylabel("Probability")
     ax.legend(loc="best")
     style_axes(ax)
     path = output_path(figure_dir, file_prefix, "validation_pmf", plot_profile)
-    save_figure(fig, path, tight_layout=True)
+    save_figure(fig, path, tight_layout=True, bbox_inches=None)
     plt.close(fig)
     return path
 
@@ -644,14 +763,16 @@ def plot_werner_validation(
     series_by_protocol: dict[str, ProtocolSeries],
     references: dict[str, ReferenceSeries],
 ) -> Path:
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(
+        figsize=(VALIDATION_LINE_WIDTH_INCHES, VALIDATION_HEIGHT_INCHES)
+    )
     plot_werner_curves(ax, series_by_protocol, references)
     ax.set_xlabel(TIME_AXIS_LABEL)
     ax.set_ylabel("Average Werner parameter")
     ax.legend(loc="best")
     style_axes(ax)
     path = output_path(figure_dir, file_prefix, "validation_werner", plot_profile)
-    save_figure(fig, path, tight_layout=True)
+    save_figure(fig, path, tight_layout=True, bbox_inches=None)
     plt.close(fig)
     return path
 
