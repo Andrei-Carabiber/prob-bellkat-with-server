@@ -120,6 +120,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_PROFILE,
     )
     parser.add_argument(
+        "--skip-werner-legend",
+        action="store_true",
+        help="Hide the legend only in the standalone Werner validation plot.",
+    )
+    parser.add_argument(
         "--plots-only",
         action="store_true",
         help="Skip Cabal runs and validate/plot from existing JSON in --output-dir.",

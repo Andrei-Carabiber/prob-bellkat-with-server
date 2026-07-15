@@ -293,7 +293,7 @@ def plot_average_werner(plt, output_dir, file_stem, t, werner_min, werner_max, p
         werner_max,
         plot_profile,
         suffix="average_werner",
-        ylabel="Average Werner parameter",
+        ylabel="Werner parameter",
         min_label=WERNER_MIN_LABEL,
         max_label=WERNER_MAX_LABEL,
     )

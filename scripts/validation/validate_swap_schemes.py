@@ -496,6 +496,8 @@ def plot_validation(
     series_by_protocol: dict[str, ProtocolSeries],
     references: dict[str, ReferenceSeries],
     swap_asap_oracle: float,
+    *,
+    skip_werner_legend: bool = False,
 ) -> dict[str, Path]:
     plot_profile = get_plot_profile(plot_profile_name)
     fig, pmf_ax = plt.subplots(
@@ -513,7 +515,7 @@ def plot_validation(
     )
 
     pmf_ax.set_ylabel("Probability")
-    werner_ax.set_ylabel("Average Werner parameter")
+    werner_ax.set_ylabel("Werner parameter")
     pmf_ax.set_xlabel(TIME_AXIS_LABEL)
     style_axes(pmf_ax)
     style_axes(werner_ax)
@@ -540,6 +542,7 @@ def plot_validation(
         plot_profile,
         series_by_protocol,
         references,
+        skip_legend=skip_werner_legend,
     )
     return {
         "combined": combined_path,
@@ -762,14 +765,17 @@ def plot_werner_validation(
     plot_profile: Any,
     series_by_protocol: dict[str, ProtocolSeries],
     references: dict[str, ReferenceSeries],
+    *,
+    skip_legend: bool = False,
 ) -> Path:
     fig, ax = plt.subplots(
         figsize=(VALIDATION_LINE_WIDTH_INCHES, VALIDATION_HEIGHT_INCHES)
     )
     plot_werner_curves(ax, series_by_protocol, references)
     ax.set_xlabel(TIME_AXIS_LABEL)
-    ax.set_ylabel("Average Werner parameter")
-    ax.legend(loc="best")
+    ax.set_ylabel("Werner parameter")
+    if not skip_legend:
+        ax.legend(loc="best")
     style_axes(ax)
     path = output_path(figure_dir, file_prefix, "validation_werner", plot_profile)
     save_figure(fig, path, tight_layout=True, bbox_inches=None)
@@ -867,6 +873,7 @@ def run_validation(args: Any) -> None:
         series_by_protocol,
         references,
         swap_asap_oracle,
+        skip_werner_legend=args.skip_werner_legend,
     )
 
     print("\n5-node swap-scheme validation")

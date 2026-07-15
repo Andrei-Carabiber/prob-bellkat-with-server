@@ -12,6 +12,10 @@ import numpy as np
 from scripts.plot.config import (
     DEFAULT_PROFILE,
     PLOT_SETTINGS,
+    SWAP_COMPARISON_COMBINED_HEIGHT_INCHES,
+    SWAP_COMPARISON_COMBINED_LINE_WIDTH_INCHES,
+    SWAP_COMPARISON_HEIGHT_INCHES,
+    SWAP_COMPARISON_LINE_WIDTH_INCHES,
     TIME_AXIS_LABEL,
     JOINT_PLOTS_HSPACE,
     get_plot_profile,
@@ -157,6 +161,36 @@ def parse_args(config):
         help="Append each protocol's secret key rate, in scientific notation, to plot legends.",
     )
     parser.add_argument(
+        "--skip-werner-legend",
+        action="store_true",
+        help="Hide the legend only in the standalone Werner plot.",
+    )
+    parser.add_argument(
+        "--binning",
+        type=int,
+        default=10,
+        metavar="BIN",
+        help=(
+            "Average each consecutive BIN-point time window before plotting the "
+            "overlaid dashed curves. Defaults to 10."
+        ),
+    )
+    binning_group = parser.add_mutually_exclusive_group()
+    binning_group.add_argument(
+        "--only-binned-plots",
+        "--only_binned_plots",
+        action="store_true",
+        dest="only_binned_plots",
+        help="Plot only the dashed, binned curves.",
+    )
+    binning_group.add_argument(
+        "--only-non-binned",
+        "--only_non_binned",
+        action="store_true",
+        dest="only_non_binned",
+        help="Plot only the original non-binned curves.",
+    )
+    parser.add_argument(
         "--plots-only",
         "--plots_only",
         action="store_true",
@@ -177,6 +211,8 @@ def parse_args(config):
         help="Run one tiny protocol case with truncation 1 under a smoke output directory.",
     )
     args = parser.parse_args()
+    if args.binning < 1:
+        parser.error("--binning must be a positive integer.")
     if args.smoke_test:
         if args.plots_only:
             parser.error("--smoke-test cannot be combined with --plots-only.")
@@ -682,6 +718,60 @@ def protocol_legend_label(protocol, skr_by_protocol, show_skr):
     return f"{protocol} SKR={skr:.2e}"
 
 
+def bin_time_series(t, values, bin_size):
+    t_array = np.asarray(t, dtype=float)
+    values_array = np.asarray(values, dtype=float)
+    if t_array.shape != values_array.shape:
+        raise ValueError("Time and value series must have matching shapes for binning.")
+    if bin_size < 1:
+        raise ValueError("bin_size must be a positive integer.")
+
+    binned_t = []
+    binned_values = []
+    for start in range(0, len(t_array), bin_size):
+        stop = min(start + bin_size, len(t_array))
+        binned_t.append(float(np.mean(t_array[start:stop])))
+        binned_values.append(float(np.mean(values_array[start:stop])))
+    return binned_t, binned_values
+
+
+def plot_time_series(
+    ax,
+    t,
+    values,
+    *,
+    color,
+    label,
+    bin_size,
+    only_binned,
+    only_non_binned,
+):
+    plot_non_binned = not only_binned
+    plot_binned = not only_non_binned
+
+    if plot_non_binned:
+        ax.plot(
+            t,
+            values,
+            color=color,
+            alpha=LINE_ALPHA,
+            linestyle="-",
+            label=label if not plot_binned else "_nolegend_",
+            zorder=2,
+        )
+    if plot_binned:
+        binned_t, binned_values = bin_time_series(t, values, bin_size)
+        ax.plot(
+            binned_t,
+            binned_values,
+            color=color,
+            alpha=1.0,
+            linestyle="--",
+            label=label,
+            zorder=3,
+        )
+
+
 def plot_combined_reachability(
     plt,
     figure_dir,
@@ -691,8 +781,13 @@ def plot_combined_reachability(
     *,
     skr_by_protocol=None,
     show_skr=False,
+    bin_size=10,
+    only_binned=False,
+    only_non_binned=False,
 ):
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(
+        figsize=(SWAP_COMPARISON_LINE_WIDTH_INCHES, SWAP_COMPARISON_HEIGHT_INCHES)
+    )
     plot_profile = get_plot_profile(config.plot_profile)
     skr_by_protocol = skr_by_protocol or {}
 
@@ -704,13 +799,15 @@ def plot_combined_reachability(
             t = list(range(len(reachability)))
         color = config.colors[index % len(config.colors)]
 
-        ax.plot(
+        plot_time_series(
+            ax,
             t,
             reachability,
             color=color,
-            alpha=LINE_ALPHA,
-            linestyle="-",
             label=protocol_legend_label(protocol, skr_by_protocol, show_skr),
+            bin_size=bin_size,
+            only_binned=only_binned,
+            only_non_binned=only_non_binned,
         )
 
     ax.set_xlabel(TIME_AXIS_LABEL)
@@ -723,7 +820,7 @@ def plot_combined_reachability(
     ax.legend(frameon=False, loc="best", ncol=1 if show_skr else 2)
 
     figure_path = output_path(figure_dir, config.figure_prefix, f"mdp_{plot_kind}s", plot_profile)
-    save_figure(fig, figure_path)
+    save_figure(fig, figure_path, bbox_inches=None)
     plt.close(fig)
     print(f"Saved {plot_kind.upper()}s figure to {figure_path}")
 
@@ -737,8 +834,14 @@ def plot_combined_quality(
     quality,
     skr_by_protocol=None,
     show_skr=False,
+    skip_legend=False,
+    bin_size=10,
+    only_binned=False,
+    only_non_binned=False,
 ):
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(
+        figsize=(SWAP_COMPARISON_LINE_WIDTH_INCHES, SWAP_COMPARISON_HEIGHT_INCHES)
+    )
     plot_profile = get_plot_profile(config.plot_profile)
     skr_by_protocol = skr_by_protocol or {}
 
@@ -765,13 +868,15 @@ def plot_combined_quality(
         else:
             values = werner
 
-        ax.plot(
+        plot_time_series(
+            ax,
             t,
             values,
             color=color,
-            alpha=LINE_ALPHA,
-            linestyle="-",
             label=protocol_legend_label(protocol, skr_by_protocol, show_skr),
+            bin_size=bin_size,
+            only_binned=only_binned,
+            only_non_binned=only_non_binned,
         )
 
     ax.set_xlabel(TIME_AXIS_LABEL)
@@ -785,11 +890,11 @@ def plot_combined_quality(
         suffix = "qmdp_ws"
 
     style_axes(ax)
-    if ax.get_legend_handles_labels()[0]:
+    if not skip_legend and ax.get_legend_handles_labels()[0]:
         ax.legend(frameon=False, loc="best", ncol=1 if show_skr else 2)
 
     figure_path = output_path(figure_dir, config.figure_prefix, suffix, plot_profile)
-    save_figure(fig, figure_path)
+    save_figure(fig, figure_path, bbox_inches=None)
     plt.close(fig)
     print(f"Saved {quality} figure to {figure_path}")
 
@@ -804,15 +909,20 @@ def plot_joint_pmf_quality(
     quality,
     skr_by_protocol=None,
     show_skr=False,
+    bin_size=10,
+    only_binned=False,
+    only_non_binned=False,
 ):
     plot_profile = get_plot_profile(config.plot_profile)
     skr_by_protocol = skr_by_protocol or {}
-    width, height = plot_profile.figure_size
     fig, (pmf_ax, quality_ax) = plt.subplots(
         2,
         1,
         sharex=True,
-        figsize=(width, height * 1.55),
+        figsize=(
+            SWAP_COMPARISON_COMBINED_LINE_WIDTH_INCHES,
+            SWAP_COMPARISON_COMBINED_HEIGHT_INCHES,
+        ),
         gridspec_kw={"height_ratios": (1.0, 1.0), "hspace": JOINT_PLOTS_HSPACE},
     )
 
@@ -820,13 +930,15 @@ def plot_joint_pmf_quality(
         _, pmf = derive_pmf_series(series)
         t = list(range(len(pmf)))
         color = config.colors[index % len(config.colors)]
-        pmf_ax.plot(
+        plot_time_series(
+            pmf_ax,
             t,
             pmf,
             color=color,
-            alpha=LINE_ALPHA,
-            linestyle="-",
             label=protocol_legend_label(protocol, skr_by_protocol, show_skr),
+            bin_size=bin_size,
+            only_binned=only_binned,
+            only_non_binned=only_non_binned,
         )
 
     for index, (protocol, pure_path, mixed_path) in enumerate(protocol_paths):
@@ -852,13 +964,15 @@ def plot_joint_pmf_quality(
         else:
             values = werner
 
-        quality_ax.plot(
+        plot_time_series(
+            quality_ax,
             t,
             values,
             color=color,
-            alpha=LINE_ALPHA,
-            linestyle="-",
             label=protocol_legend_label(protocol, skr_by_protocol, show_skr),
+            bin_size=bin_size,
+            only_binned=only_binned,
+            only_non_binned=only_non_binned,
         )
 
     pmf_ax.set_ylabel("Probability")
@@ -878,7 +992,7 @@ def plot_joint_pmf_quality(
 
     fig.align_ylabels((pmf_ax, quality_ax))
     figure_path = output_path(figure_dir, config.figure_prefix, suffix, plot_profile)
-    save_figure(fig, figure_path, tight_layout=False)
+    save_figure(fig, figure_path, tight_layout=False, bbox_inches=None)
     plt.close(fig)
     print(f"Saved joint PMF/{quality} figure to {figure_path}")
 
@@ -1053,6 +1167,9 @@ def run_comparison(config):
             config,
             skr_by_protocol=skr_by_protocol,
             show_skr=args.show_skr_legend,
+            bin_size=args.binning,
+            only_binned=args.only_binned_plots,
+            only_non_binned=args.only_non_binned,
         )
         plot_combined_reachability(
             plt,
@@ -1062,6 +1179,9 @@ def run_comparison(config):
             config,
             skr_by_protocol=skr_by_protocol,
             show_skr=args.show_skr_legend,
+            bin_size=args.binning,
+            only_binned=args.only_binned_plots,
+            only_non_binned=args.only_non_binned,
         )
     else:
         plot_combined_reachability(
@@ -1072,6 +1192,9 @@ def run_comparison(config):
             config,
             skr_by_protocol=skr_by_protocol,
             show_skr=args.show_skr_legend,
+            bin_size=args.binning,
+            only_binned=args.only_binned_plots,
+            only_non_binned=args.only_non_binned,
         )
 
     plot_combined_quality(
@@ -1082,6 +1205,10 @@ def run_comparison(config):
         quality="werner",
         skr_by_protocol=skr_by_protocol,
         show_skr=args.show_skr_legend,
+        skip_legend=args.skip_werner_legend,
+        bin_size=args.binning,
+        only_binned=args.only_binned_plots,
+        only_non_binned=args.only_non_binned,
     )
     if args.plot_fidelity:
         plot_combined_quality(
@@ -1092,6 +1219,9 @@ def run_comparison(config):
             quality="fidelity",
             skr_by_protocol=skr_by_protocol,
             show_skr=args.show_skr_legend,
+            bin_size=args.binning,
+            only_binned=args.only_binned_plots,
+            only_non_binned=args.only_non_binned,
         )
     if args.joint_plots:
         joint_quality = "fidelity" if args.plot_fidelity else "werner"
@@ -1104,6 +1234,9 @@ def run_comparison(config):
             quality=joint_quality,
             skr_by_protocol=skr_by_protocol,
             show_skr=args.show_skr_legend,
+            bin_size=args.binning,
+            only_binned=args.only_binned_plots,
+            only_non_binned=args.only_non_binned,
         )
 
     print("\nSecret key rates:")
