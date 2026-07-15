@@ -66,6 +66,8 @@ cradle:
           component: "exe:quantP_deadlock_star_bad_scheduler"
         - path: "quantum-examples/validation/P_swapasap.hs"
           component: "exe:quantP_swapasap"
+        - path: "quantum-examples/infocom/P_compare_distillation.hs"
+          component: "exe:quantP_compare_distillation"
         - path: "quantum-examples/infocom/P_compare_swap_schemes.hs"
           component: "exe:quantP_compare_swap_schemes"
         - path: "quantum-examples/infocom/P_validate_swap_schemes.hs"

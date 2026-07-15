@@ -29,6 +29,7 @@ from scripts.analysis.swap_comparison.common import (
 )
 from scripts.plot.config import (
     DEFAULT_PROFILE,
+    JOINT_PLOTS_HSPACE,
     PLOT_SETTINGS,
     configure_matplotlib,
     get_plot_profile,
@@ -46,19 +47,37 @@ FILE_PREFIX = "swap_scheme_optimality"
 FIGURE_PREFIX = "swap_scheme_optimality"
 DEFAULT_OUTPUT_DIR = Path("output/swap-scheme-optimality")
 DEFAULT_OPTIMALITY_TRUNCATION = 5000
+DOUBLING_EXPERIMENT = "doubling-asap"
+SEQUENTIAL_EXPERIMENT = "sequential-asap"
+EXPERIMENTS = (DOUBLING_EXPERIMENT, SEQUENTIAL_EXPERIMENT)
+DEFAULT_P_GEN_VALUES_A = "0.005,0.05,0.5"
+DEFAULT_P_SWAP_VALUES_A = "0.5,0.75,1.0"
+DEFAULT_P_GEN_VALUES_B = "0.005,0.05,0.5"
+DEFAULT_EDGE_SKEW_VALUES_B = "1,4,16"
+EVALUATION_A_EDGE_SKEW = 1.0
+EVALUATION_A_W0 = 0.955
+EVALUATION_B_W0 = 0.955
 LOG_AXES = {"p-gen", "edge-skew"}
 AXIS_LABELS = {
-    "p-gen": r"Reference 50 km $p_{\mathrm{ge}}$",
-    "w0": r"Reference 50 km Werner parameter $w_0$",
+    "p-gen": r"Reference $p_{\mathrm{ge}}$",
+    "w0": r"Reference Werner parameter $w_0$",
+    "p-swap": r"Swap success probability $p_{\mathrm{sw}}$",
     "edge-skew": r"Right-edge skew penalty $\eta$",
 }
 
 
 @dataclass(frozen=True)
 class RatioJob:
+    experiment: str
     name: str
     x_axis: str
     y_axis: str
+    x_values_attr: str
+    x_values_flag: str
+    y_values_attr: str
+    y_values_flag: str
+    fixed_axes: tuple[tuple[str, float], ...]
+    cmap: str
     numerator_protocols: tuple[str, ...]
     numerator_label: str
     caption: str
@@ -90,20 +109,34 @@ class RatioResult:
 
 DEFAULT_JOBS = (
     RatioJob(
+        experiment=DOUBLING_EXPERIMENT,
         name="doubling_over_swap_asap",
         x_axis="p-gen",
-        y_axis="w0",
+        y_axis="p-swap",
+        x_values_attr="p_gen_values_a",
+        x_values_flag="--p-ge-values-a",
+        y_values_attr="p_swap_values_a",
+        y_values_flag="--p-sw-values-a",
+        fixed_axes=(("edge-skew", EVALUATION_A_EDGE_SKEW), ("w0", EVALUATION_A_W0)),
+        cmap="RdBu",
         numerator_protocols=(DOUBLING_PROTOCOL,),
         numerator_label="doubling",
-        caption=r"$\mathrm{SKR}_{\mathrm{doubling}}/\mathrm{SKR}_{\mathrm{swap\mbox{-}asap}}$",
+        caption=r"$\mathrm{SKR}_{\mathrm{doubling}}/\mathrm{SKR}_{\mathrm{swap\!-\!asap}}$",
     ),
     RatioJob(
+        experiment=SEQUENTIAL_EXPERIMENT,
         name="sequential_over_swap_asap",
         x_axis="p-gen",
         y_axis="edge-skew",
+        x_values_attr="p_gen_values_b",
+        x_values_flag="--p-ge-values-b",
+        y_values_attr="edge_skew_values_b",
+        y_values_flag="--edge-skew-values-b",
+        fixed_axes=(("w0", EVALUATION_B_W0),),
+        cmap="PiYG",
         numerator_protocols=SEQUENTIAL_PROTOCOLS,
         numerator_label="best sequential",
-        caption=r"$\max\mathrm{SKR}_{\mathrm{sequential}}/\mathrm{SKR}_{\mathrm{swap\mbox{-}asap}}$",
+        caption=r"$\max\mathrm{SKR}_{\mathrm{sequential}}/\mathrm{SKR}_{\mathrm{swap\!-\!asap}}$",
     ),
 )
 
@@ -112,8 +145,10 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description=(
             "Run a compact topology-aware swap-scheme optimality analysis. "
-            "The script plots doubling/swap-asap over 50 km p_ge and 50 km w0, "
-            "and the best sequential order/swap-asap over 50 km p_ge and skew."
+            "Evaluation (a), when requested, plots doubling/swap-asap over "
+            "50 km p_ge and p_swap with homogeneous edges at fixed w0. "
+            "Evaluation (b) plots the best sequential "
+            "order/swap-asap over 50 km p_ge and right-edge skew at fixed w0."
         )
     )
     budget_group = parser.add_mutually_exclusive_group()
@@ -134,27 +169,50 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--p-ge-values",
-        "--p-gen-values",
-        dest="p_gen_values",
-        default="0.01,0.1,1.0",
-        help="Comma-separated 50 km reference p_ge values.",
+        "--p-ge-values-a",
+        "--p-gen-values-a",
+        dest="p_gen_values_a",
+        default=None,
+        help="Comma-separated 50 km reference p_ge values for doubling vs. swap-asap.",
     )
     parser.add_argument(
-        "--w0-values",
-        default="0.961,0.985,1.0",
-        help="Comma-separated 50 km reference w0 values.",
+        "--p-sw-values-a",
+        "--p-swap-values-a",
+        dest="p_swap_values_a",
+        default=None,
+        help="Comma-separated swap success probabilities for doubling vs. swap-asap.",
     )
     parser.add_argument(
-        "--edge-skew-values",
-        default="1,4,16",
-        help="Comma-separated rightmost-link skew penalties.",
+        "--p-ge-values-b",
+        "--p-gen-values-b",
+        dest="p_gen_values_b",
+        default=None,
+        help="Comma-separated 50 km reference p_ge values for sequential vs. swap-asap.",
     )
-    parser.add_argument("--p-ge", "--fixed-p-ge", dest="fixed_p_gen", type=float, default=None, help="Fixed 50 km p_ge for jobs where p_ge is not an axis; omitted values use the executable default.")
-    parser.add_argument("--w0", "--fixed-w0", dest="fixed_w0", type=float, default=None, help="Fixed 50 km w0 for jobs where w0 is not an axis; omitted values use the executable default.")
-    parser.add_argument("--edge-skew", "--fixed-edge-skew", dest="fixed_edge_skew", type=float, default=None, help="Fixed edge skew for jobs where edge skew is not an axis; omitted values use the executable default.")
+    parser.add_argument(
+        "--edge-skew-values-b",
+        default=None,
+        help="Comma-separated rightmost-link skew penalties for sequential vs. swap-asap.",
+    )
+    parser.add_argument("--p-ge-values", "--p-gen-values", dest="legacy_p_gen_values", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--w0-values", dest="legacy_w0_values", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--w0-values-a", dest="ignored_w0_values_a", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--edge-skew-values", dest="legacy_edge_skew_values", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--p-ge", "--fixed-p-ge", dest="ignored_fixed_p_gen", type=float, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--w0", "--fixed-w0", dest="ignored_fixed_w0", type=float, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--edge-skew", "--fixed-edge-skew", dest="ignored_fixed_edge_skew", type=float, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--t-coh", "--fixed-t-coh", dest="fixed_t_coh", type=int, default=None, help="Fixed coherence time; omitted values use the executable default.")
     parser.add_argument("--p-swap", "--fixed-p-swap", dest="fixed_p_swap", type=float, default=None, help="Fixed swap probability; omitted values use the executable default.")
+    parser.add_argument(
+        "--experiment",
+        action="append",
+        choices=EXPERIMENTS,
+        dest="experiments",
+        help=(
+            "Experiment to run. Pass multiple times for multiple experiments. "
+            "Defaults to sequential-asap unless only experiment (a) values are supplied."
+        ),
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -179,37 +237,81 @@ def parse_args():
         help="Cabal executable name, or path to an already-built executable.",
     )
     parser.add_argument("--plots-only", action="store_true", help="Reuse existing JSONs and only rewrite CSVs/plots/report.")
+    parser.add_argument(
+        "--joint-plots",
+        action="store_true",
+        help="Also combine the optimality plots into one figure with a shared p_ge axis.",
+    )
     parser.add_argument("--resume", action="store_true", help="Reuse valid existing JSONs and run only missing cases.")
     parser.add_argument("--no-build", action="store_true", help="Skip the initial cabal build step.")
     parser.add_argument(
         "--smoke-test",
         action="store_true",
-        help="Run a one-point truncation-1 sweep under an output smoke directory.",
+        help="Run a tiny truncation-1 sweep under an output smoke directory.",
     )
     args = parser.parse_args()
+    apply_legacy_axis_values(args)
+    configure_experiments(args)
     if args.smoke_test:
         if args.plots_only:
             parser.error("--smoke-test cannot be combined with --plots-only.")
         default_markdown = DEFAULT_OUTPUT_DIR / "swap-scheme-optimality.md"
         args.coverage = None
         args.truncation = 1
-        args.p_gen_values = smoke_value_text(args.fixed_p_gen, args.p_gen_values)
-        args.w0_values = smoke_value_text(args.fixed_w0, args.w0_values)
-        args.edge_skew_values = smoke_value_text(args.fixed_edge_skew, args.edge_skew_values)
+        if DOUBLING_EXPERIMENT in args.selected_experiments:
+            args.p_gen_values_a = smoke_value_text(args.p_gen_values_a, "--p-ge-values-a")
+            args.p_swap_values_a = smoke_value_text(args.p_swap_values_a, "--p-sw-values-a")
+        if SEQUENTIAL_EXPERIMENT in args.selected_experiments:
+            args.p_gen_values_b = smoke_value_text(args.p_gen_values_b, "--p-ge-values-b")
+            args.edge_skew_values_b = smoke_value_text(args.edge_skew_values_b, "--edge-skew-values-b")
         args.output_dir = args.output_dir / "smoke"
         if args.markdown == default_markdown:
             args.markdown = args.output_dir / "swap-scheme-optimality.md"
     return args
 
 
-def smoke_value_text(fixed_value: float | None, axis_values_text: str) -> str:
-    if fixed_value is not None:
-        return f"{fixed_value:.12g}"
+def apply_legacy_axis_values(args) -> None:
+    if args.legacy_p_gen_values is not None:
+        args.p_gen_values_b = args.legacy_p_gen_values
+    if args.legacy_edge_skew_values is not None:
+        args.edge_skew_values_b = args.legacy_edge_skew_values
+
+
+def configure_experiments(args) -> None:
+    explicit_a = ratio_job_requested(DEFAULT_JOBS[0], args)
+    explicit_b = ratio_job_requested(DEFAULT_JOBS[1], args)
+    if args.experiments:
+        selected = tuple(dict.fromkeys(args.experiments))
+    elif explicit_a and not explicit_b:
+        selected = (DOUBLING_EXPERIMENT,)
+    elif explicit_b and not explicit_a:
+        selected = (SEQUENTIAL_EXPERIMENT,)
+    elif explicit_a and explicit_b:
+        selected = (DOUBLING_EXPERIMENT, SEQUENTIAL_EXPERIMENT)
+    else:
+        selected = (SEQUENTIAL_EXPERIMENT,)
+
+    args.selected_experiments = selected
+    if DOUBLING_EXPERIMENT in selected:
+        if args.p_gen_values_a is None:
+            args.p_gen_values_a = DEFAULT_P_GEN_VALUES_A
+        if args.p_swap_values_a is None:
+            args.p_swap_values_a = DEFAULT_P_SWAP_VALUES_A
+    if SEQUENTIAL_EXPERIMENT in selected:
+        if args.p_gen_values_b is None:
+            args.p_gen_values_b = DEFAULT_P_GEN_VALUES_B
+        if args.edge_skew_values_b is None:
+            args.edge_skew_values_b = DEFAULT_EDGE_SKEW_VALUES_B
+
+
+def smoke_value_text(axis_values_text: str | None, flag: str) -> str:
+    if axis_values_text is None:
+        raise SystemExit(f"--smoke-test requires at least one value for {flag}.")
     for part in axis_values_text.split(","):
         value = part.strip()
         if value:
             return value
-    raise SystemExit("--smoke-test requires at least one value on each plotted axis.")
+    raise SystemExit(f"--smoke-test requires at least one value for {flag}.")
 
 
 def log(message: str = "") -> None:
@@ -235,40 +337,66 @@ def validate_args(args) -> None:
         validate_probability("--coverage", args.coverage)
     if args.truncation is not None and args.truncation < 0:
         raise SystemExit("--truncation must be non-negative.")
-    if args.fixed_p_gen is not None:
-        validate_probability("--p-ge", args.fixed_p_gen)
-    if args.fixed_w0 is not None:
-        validate_probability("--w0", args.fixed_w0, allow_zero=True)
     if args.fixed_p_swap is not None:
         validate_probability("--p-swap", args.fixed_p_swap, allow_zero=True)
-    if args.fixed_edge_skew is not None and args.fixed_edge_skew < 1:
-        raise SystemExit("--edge-skew must be at least 1.")
     if args.fixed_t_coh is not None and args.fixed_t_coh <= 0:
         raise SystemExit("--t-coh must be positive.")
-    for value in axis_values("p-gen", args):
-        validate_probability("--p-ge-values", value)
-    for value in axis_values("w0", args):
-        validate_probability("--w0-values", value, allow_zero=True)
-    for value in axis_values("edge-skew", args):
-        if value < 1:
-            raise SystemExit("--edge-skew-values entries must be at least 1.")
+    for job in enabled_jobs(args):
+        for axis in (job.x_axis, job.y_axis):
+            for value in axis_values(job, axis, args):
+                validate_axis_value(axis, value, axis_flag(job, axis))
 
 
-def axis_values(axis: str, args) -> tuple[float, ...]:
+def validate_axis_value(axis: str, value: float, flag: str) -> None:
     if axis == "p-gen":
-        return parse_float_values(args.p_gen_values, "--p-ge-values")
-    if axis == "w0":
-        return parse_float_values(args.w0_values, "--w0-values")
-    if axis == "edge-skew":
-        return parse_float_values(args.edge_skew_values, "--edge-skew-values")
-    raise AssertionError(f"Unexpected axis: {axis}")
+        validate_probability(flag, value)
+    elif axis == "w0":
+        validate_probability(flag, value, allow_zero=True)
+    elif axis == "p-swap":
+        validate_probability(flag, value, allow_zero=True)
+    elif axis == "edge-skew":
+        if value < 1:
+            raise SystemExit(f"{flag} entries must be at least 1.")
+    else:
+        raise AssertionError(f"Unexpected axis: {axis}")
+
+
+def axis_flag(job: RatioJob, axis: str) -> str:
+    if axis == job.x_axis:
+        return job.x_values_flag
+    if axis == job.y_axis:
+        return job.y_values_flag
+    raise AssertionError(f"Unexpected axis {axis} for job {job.name}")
+
+
+def axis_values(job: RatioJob, axis: str, args) -> tuple[float, ...]:
+    if axis == job.x_axis:
+        return parse_float_values(getattr(args, job.x_values_attr), job.x_values_flag)
+    if axis == job.y_axis:
+        return parse_float_values(getattr(args, job.y_values_attr), job.y_values_flag)
+    raise AssertionError(f"Unexpected axis {axis} for job {job.name}")
+
+
+def ratio_job_requested(job: RatioJob, args) -> bool:
+    return getattr(args, job.x_values_attr) is not None or getattr(args, job.y_values_attr) is not None
+
+
+def ratio_job_enabled(job: RatioJob, args) -> bool:
+    return job.experiment in args.selected_experiments
+
+
+def enabled_jobs(args) -> tuple[RatioJob, ...]:
+    jobs = tuple(job for job in DEFAULT_JOBS if ratio_job_enabled(job, args))
+    if not jobs:
+        raise SystemExit("No optimality evaluation is enabled.")
+    return jobs
 
 
 def fixed_values(args) -> dict[str, float | int | None]:
     return {
-        "p-gen": args.fixed_p_gen,
-        "w0": args.fixed_w0,
-        "edge-skew": args.fixed_edge_skew,
+        "p-gen": None,
+        "w0": None,
+        "edge-skew": None,
         "t-coh": args.fixed_t_coh,
         "p-swap": args.fixed_p_swap,
     }
@@ -286,22 +414,32 @@ def point_from_values(values: dict[str, float | int | None]) -> SchemePoint:
 
 def point_for_job(job: RatioJob, x_value: float, y_value: float, args) -> SchemePoint:
     values = fixed_values(args)
+    for axis, value in job.fixed_axes:
+        values[axis] = value
     values[job.x_axis] = x_value
     values[job.y_axis] = y_value
     return point_from_values(values)
 
 
-def all_points(args) -> list[SchemePoint]:
-    points = []
-    seen = set()
-    for job in DEFAULT_JOBS:
-        for y_value in axis_values(job.y_axis, args):
-            for x_value in axis_values(job.x_axis, args):
+def protocols_for_job(job: RatioJob) -> tuple[str, ...]:
+    return (BASELINE_PROTOCOL, *job.numerator_protocols)
+
+
+def all_point_protocols(args) -> list[tuple[SchemePoint, tuple[str, ...]]]:
+    points: list[SchemePoint] = []
+    protocols_by_point: dict[SchemePoint, set[str]] = {}
+    for job in enabled_jobs(args):
+        for y_value in axis_values(job, job.y_axis, args):
+            for x_value in axis_values(job, job.x_axis, args):
                 point = point_for_job(job, x_value, y_value, args)
-                if point not in seen:
-                    seen.add(point)
+                if point not in protocols_by_point:
+                    protocols_by_point[point] = set()
                     points.append(point)
-    return points
+                protocols_by_point[point].update(protocols_for_job(job))
+    return [
+        (point, tuple(protocol for protocol in PROTOCOLS if protocol in protocols_by_point[point]))
+        for point in points
+    ]
 
 
 def command_args_for_point(point: SchemePoint) -> list[str]:
@@ -393,12 +531,12 @@ def run_extremal_case(
     return run_command(command, stdout_path=target_path, status_label=status_label)
 
 
-def resolve_budget(point: SchemePoint, data_dir: Path, args) -> int:
+def resolve_budget(point: SchemePoint, protocols: tuple[str, ...], data_dir: Path, args) -> int:
     if args.coverage is None:
         return args.truncation
 
     budgets = []
-    for protocol in PROTOCOLS:
+    for protocol in protocols:
         target_path = json_path(data_dir, point, protocol, MDP_MODE, STATIC_EVENT)
         if args.plots_only:
             path = existing_json_path(data_dir, point, protocol, MDP_MODE, STATIC_EVENT)
@@ -479,11 +617,19 @@ def ensure_protocol_jsons(
     return paths[0], paths[1]
 
 
-def evaluate_point(point: SchemePoint, data_dir: Path, args, *, index: int, total: int) -> PointResult:
-    budget = 0 if args.plots_only else resolve_budget(point, data_dir, args)
+def evaluate_point(
+    point: SchemePoint,
+    protocols: tuple[str, ...],
+    data_dir: Path,
+    args,
+    *,
+    index: int,
+    total: int,
+) -> PointResult:
+    budget = 0 if args.plots_only else resolve_budget(point, protocols, data_dir, args)
     skr_by_protocol = {}
-    for protocol_index, protocol in enumerate(PROTOCOLS, start=1):
-        log(f"[progress] point {index}/{total}; protocol {protocol_index}/{len(PROTOCOLS)}: {protocol}")
+    for protocol_index, protocol in enumerate(protocols, start=1):
+        log(f"[progress] point {index}/{total}; protocol {protocol_index}/{len(protocols)}: {protocol}")
         pure_path, mixed_path = ensure_protocol_jsons(point, protocol, data_dir, args, budget)
         skr_by_protocol[protocol] = compute_secret_key_rate_from_split(pure_path, mixed_path)
         log(f"{scenario_tag(point)} {protocol}: SKR={skr_by_protocol[protocol]:.12g}")
@@ -508,8 +654,8 @@ def ratio_result(job: RatioJob, point_result: PointResult) -> RatioResult:
 
 
 def ratio_grid(job: RatioJob, results: dict[SchemePoint, PointResult], args):
-    x_values = axis_values(job.x_axis, args)
-    y_values = axis_values(job.y_axis, args)
+    x_values = axis_values(job, job.x_axis, args)
+    y_values = axis_values(job, job.y_axis, args)
     grid = [
         [
             ratio_result(job, results[point_for_job(job, x_value, y_value, args)])
@@ -534,7 +680,7 @@ def tick_label(value: float | int) -> str:
     return f"{float(value):.12g}"
 
 
-def plot_ratio(plt, figure_dir: Path, job: RatioJob, results: dict[SchemePoint, PointResult], args) -> Path:
+def draw_ratio(fig, ax, job: RatioJob, results: dict[SchemePoint, PointResult], args, *, show_xlabel: bool) -> None:
     from matplotlib.colors import TwoSlopeNorm
     from matplotlib.ticker import NullLocator
 
@@ -542,14 +688,9 @@ def plot_ratio(plt, figure_dir: Path, job: RatioJob, results: dict[SchemePoint, 
     x = np.array([require_axis_number(job.x_axis, value) for value in x_values], dtype=float)
     y = np.array([require_axis_number(job.y_axis, value) for value in y_values], dtype=float)
     ratio = np.array([[entry.ratio for entry in row] for row in grid], dtype=float)
-    advantage = np.array(
-        [[entry.numerator_skr - entry.baseline_skr for entry in row] for row in grid],
-        dtype=float,
-    )
 
-    fig, ax = plt.subplots()
     finite_ratio = ratio[np.isfinite(ratio)]
-    contour_kwargs = {"levels": 21, "cmap": "coolwarm"}
+    contour_kwargs = {"levels": 21, "cmap": job.cmap}
     if finite_ratio.size > 0:
         ratio_min = float(np.nanmin(finite_ratio))
         ratio_max = float(np.nanmax(finite_ratio))
@@ -557,11 +698,8 @@ def plot_ratio(plt, figure_dir: Path, job: RatioJob, results: dict[SchemePoint, 
             contour_kwargs["norm"] = TwoSlopeNorm(vmin=ratio_min, vcenter=1.0, vmax=ratio_max)
 
     heatmap = ax.contourf(x, y, np.ma.masked_invalid(ratio), **contour_kwargs)
-    finite_advantage = advantage[np.isfinite(advantage)]
-    if finite_advantage.size > 0 and np.nanmin(finite_advantage) <= 0 <= np.nanmax(finite_advantage):
-        boundary = ax.contour(x, y, advantage, levels=[0.0], colors="black", linewidths=1.2)
-        if boundary.allsegs[0]:
-            ax.plot([], [], color="black", linewidth=1.2, label="Equal SKR")
+    # Equal-SKR line:
+    # ax.contour(x, y, ratio, levels=[1.0], colors="black", linewidths=1.2)
 
     if job.x_axis in LOG_AXES:
         ax.set_xscale("log")
@@ -569,16 +707,20 @@ def plot_ratio(plt, figure_dir: Path, job: RatioJob, results: dict[SchemePoint, 
     if job.y_axis in LOG_AXES:
         ax.set_yscale("log")
         ax.yaxis.set_minor_locator(NullLocator())
-    ax.set_xlabel(axis_label(job.x_axis))
+    ax.set_xlabel(axis_label(job.x_axis) if show_xlabel else "")
     ax.set_ylabel(axis_label(job.y_axis))
     ax.set_xticks(x)
     ax.set_yticks(y)
     ax.set_xticklabels([tick_label(require_axis_number(job.x_axis, value)) for value in x_values])
     ax.set_yticklabels([tick_label(require_axis_number(job.y_axis, value)) for value in y_values])
-    ax.set_title(job.numerator_label + " over swap-asap")
+    # ax.set_title(job.numerator_label + " over swap-asap")
     style_axes(ax)
     fig.colorbar(heatmap, ax=ax, label=job.caption)
-    add_external_legend(ax)
+
+
+def plot_ratio(plt, figure_dir: Path, job: RatioJob, results: dict[SchemePoint, PointResult], args) -> Path:
+    fig, ax = plt.subplots()
+    draw_ratio(fig, ax, job, results, args, show_xlabel=True)
 
     plot_profile = get_plot_profile(args.plot_profile)
     figure_path = output_path(figure_dir, FIGURE_PREFIX, job.name, plot_profile)
@@ -587,21 +729,34 @@ def plot_ratio(plt, figure_dir: Path, job: RatioJob, results: dict[SchemePoint, 
     return figure_path
 
 
-def add_external_legend(ax) -> None:
-    handles, labels = ax.get_legend_handles_labels()
-    if not handles:
-        return
-    ax.legend(
-        handles,
-        labels,
-        frameon=False,
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.26),
-        ncol=min(3, len(handles)),
-        borderaxespad=0.0,
-        columnspacing=1.1,
-        handletextpad=0.5,
+def plot_joint_ratios(plt, figure_dir: Path, results: dict[SchemePoint, PointResult], args) -> Path:
+    jobs = enabled_jobs(args)
+    plot_profile = get_plot_profile(args.plot_profile)
+    width, height = plot_profile.figure_size
+    fig, axes = plt.subplots(
+        len(jobs),
+        1,
+        sharex=True,
+        figsize=(width, height * (1.7 if len(jobs) > 1 else 1.0)),
+        gridspec_kw={"hspace": JOINT_PLOTS_HSPACE},
     )
+    if len(jobs) == 1:
+        axes = (axes,)
+    for index, (ax, job) in enumerate(zip(axes, jobs)):
+        draw_ratio(
+            fig,
+            ax,
+            job,
+            results,
+            args,
+            show_xlabel=index == len(jobs) - 1,
+        )
+    fig.align_ylabels(axes)
+
+    figure_path = output_path(figure_dir, FIGURE_PREFIX, "joint", plot_profile)
+    save_figure(fig, figure_path, tight_layout=False)
+    plt.close(fig)
+    return figure_path
 
 
 def write_protocol_csv(path: Path, results: dict[SchemePoint, PointResult]) -> None:
@@ -634,6 +789,7 @@ def write_ratio_csv(path: Path, results: dict[SchemePoint, PointResult], args) -
             "p_ge",
             "w0",
             "edge_skew",
+            "p_swap",
             "numerator",
             "numerator_skr",
             "swap_asap_skr",
@@ -641,9 +797,9 @@ def write_ratio_csv(path: Path, results: dict[SchemePoint, PointResult], args) -
         )
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
-        for job in DEFAULT_JOBS:
-            for y_value in axis_values(job.y_axis, args):
-                for x_value in axis_values(job.x_axis, args):
+        for job in enabled_jobs(args):
+            for y_value in axis_values(job, job.y_axis, args):
+                for x_value in axis_values(job, job.x_axis, args):
                     point = point_for_job(job, x_value, y_value, args)
                     ratio = ratio_result(job, results[point])
                     writer.writerow(
@@ -653,6 +809,7 @@ def write_ratio_csv(path: Path, results: dict[SchemePoint, PointResult], args) -
                             "p_ge": value_text(point.p_gen),
                             "w0": value_text(point.w0),
                             "edge_skew": value_text(point.edge_skew),
+                            "p_swap": value_text(point.p_swap),
                             "numerator": ratio.numerator_protocol,
                             "numerator_skr": f"{ratio.numerator_skr:.12g}",
                             "swap_asap_skr": f"{ratio.baseline_skr:.12g}",
@@ -670,7 +827,7 @@ def write_report(
     args,
     protocol_csv: Path,
     ratio_csv: Path,
-    figures: list[tuple[RatioJob, Path]],
+    figures: list[tuple[str, str, Path]],
     results: dict[SchemePoint, PointResult],
 ) -> None:
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
@@ -679,6 +836,21 @@ def write_report(
         if args.plots_only
         else (f"coverage={args.coverage:g}" if args.coverage is not None else f"truncation={args.truncation}")
     )
+    jobs = enabled_jobs(args)
+    configuration_lines = []
+    if DEFAULT_JOBS[0] in jobs:
+        configuration_lines.append(
+            f"- evaluation (a), doubling vs. swap-asap: `p_ge_50km={args.p_gen_values_a}`, "
+            f"`p_swap={args.p_swap_values_a}`, `w0_50km={EVALUATION_A_W0:g}`, "
+            f"`edge_skew={EVALUATION_A_EDGE_SKEW:g}`"
+        )
+    else:
+        configuration_lines.append("- evaluation (a), doubling vs. swap-asap: skipped")
+    if DEFAULT_JOBS[1] in jobs:
+        configuration_lines.append(
+            f"- evaluation (b), best sequential vs. swap-asap: `p_ge_50km={args.p_gen_values_b}`, "
+            f"`edge_skew={args.edge_skew_values_b}`, `w0_50km={EVALUATION_B_W0:g}`"
+        )
     lines = [
         "# Swap Scheme Optimality",
         "",
@@ -686,14 +858,9 @@ def write_report(
         "",
         "## Configuration",
         "",
-        f"- 50 km `p_ge` values: `{args.p_gen_values}`",
-        f"- 50 km `w0` values: `{args.w0_values}`",
-        f"- `edge_skew` values: `{args.edge_skew_values}`",
+        *configuration_lines,
         (
-            f"- fixed values: `p_ge_50km={fixed_value_text(args.fixed_p_gen)}, "
-            f"w0_50km={fixed_value_text(args.fixed_w0)}, "
-            f"edge_skew={fixed_value_text(args.fixed_edge_skew)}, "
-            f"t_coh={fixed_value_text(args.fixed_t_coh)}, "
+            f"- hardware overrides: `t_coh={fixed_value_text(args.fixed_t_coh)}, "
             f"p_swap={fixed_value_text(args.fixed_p_swap)}`"
         ),
         f"- budget: `{budget_text}`",
@@ -708,21 +875,21 @@ def write_report(
         "## Figures",
         "",
     ]
-    for job, figure_path in figures:
+    for heading, alt_text, figure_path in figures:
         lines.extend(
             [
-                f"### {job.numerator_label} over swap-asap",
+                f"### {heading}",
                 "",
-                f"![{job.name}]({relative_link(markdown_path, figure_path)})",
+                f"![{alt_text}]({relative_link(markdown_path, figure_path)})",
                 "",
             ]
         )
 
     lines.extend(["## Ratio Summary", ""])
-    for job in DEFAULT_JOBS:
+    for job in jobs:
         ratios = []
-        for y_value in axis_values(job.y_axis, args):
-            for x_value in axis_values(job.x_axis, args):
+        for y_value in axis_values(job, job.y_axis, args):
+            for x_value in axis_values(job, job.x_axis, args):
                 point = point_for_job(job, x_value, y_value, args)
                 ratios.append(ratio_result(job, results[point]))
         finite = [entry.ratio for entry in ratios if math.isfinite(entry.ratio)]
@@ -754,15 +921,23 @@ def main() -> None:
         if command is not None:
             run_command(command, status_label=f"cabal build {args.executable}")
 
-    points = all_points(args)
+    point_protocols = all_point_protocols(args)
+    total_protocol_cases = sum(len(protocols) for _, protocols in point_protocols)
     started = time.perf_counter()
     results = {}
-    log(f"[progress] starting {len(points)} point(s), {len(PROTOCOLS)} protocols per point")
-    for index, point in enumerate(points, start=1):
+    log(f"[progress] starting {len(point_protocols)} point(s), {total_protocol_cases} protocol case(s)")
+    for index, (point, protocols) in enumerate(point_protocols, start=1):
         log()
         elapsed = time.perf_counter() - started
-        log(f"[progress] point {index}/{len(points)} after {format_duration(elapsed)}: {scenario_tag(point)}")
-        results[point] = evaluate_point(point, data_dir, args, index=index, total=len(points))
+        log(f"[progress] point {index}/{len(point_protocols)} after {format_duration(elapsed)}: {scenario_tag(point)}")
+        results[point] = evaluate_point(
+            point,
+            protocols,
+            data_dir,
+            args,
+            index=index,
+            total=len(point_protocols),
+        )
 
     protocol_csv = args.output_dir / f"{FILE_PREFIX}_protocol_skr.csv"
     ratio_csv = args.output_dir / f"{FILE_PREFIX}_ratios.csv"
@@ -777,10 +952,14 @@ def main() -> None:
     if args.smoke_test:
         log("Smoke test: skipped contour figures for the one-point grid.")
     else:
-        for job in DEFAULT_JOBS:
+        for job in enabled_jobs(args):
             figure_path = plot_ratio(plt, figure_dir, job, results, args)
-            figures.append((job, figure_path))
+            figures.append((f"{job.numerator_label} over swap-asap", job.name, figure_path))
             log(f"Saved {job.name} figure to {figure_path}")
+        if args.joint_plots:
+            figure_path = plot_joint_ratios(plt, figure_dir, results, args)
+            figures.append(("Joint optimality plots", "joint optimality plots", figure_path))
+            log(f"Saved joint optimality figure to {figure_path}")
 
     write_report(args.markdown, args, protocol_csv, ratio_csv, figures, results)
     log(f"Wrote markdown report to {args.markdown}")

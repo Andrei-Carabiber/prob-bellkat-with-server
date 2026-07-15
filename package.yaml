@@ -465,6 +465,19 @@ executables:
       - OverloadedLists
     ghc-options:
       - -rtsopts
+  quantP_compare_distillation:
+    dependencies:
+      - bellkat
+    main: P_compare_distillation.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NetworkConfig
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
   quantP_compare_swap_parameters:
     dependencies:
       - bellkat
