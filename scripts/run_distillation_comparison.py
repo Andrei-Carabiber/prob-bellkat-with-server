@@ -14,8 +14,6 @@ from pathlib import Path
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import numpy as np
-
 from scripts.analysis.swap_comparison.common import (
     MIXED_EVENT,
     QMDP_MODE,
@@ -38,8 +36,8 @@ from scripts.plot.config import (
     get_plot_profile,
     output_path,
     save_figure,
-    style_axes,
 )
+from scripts.plot.contour import draw_ratio_contour
 
 
 PROTOCOLS = ("swap", "dist-swap")
@@ -49,7 +47,7 @@ FILE_PREFIX = "distillation_comparison"
 FIGURE_PREFIX = "distillation_comparison"
 DEFAULT_OUTPUT_DIR = Path("output/distillation-comparison")
 DEFAULT_TRUNCATION = 5000
-DEFAULT_P_GE_VALUES_A = "0.005,0.05,0.5"
+DEFAULT_P_GE_VALUES_A = "0.008,0.016,0.032,0.064,0.128,0.256,0.512,1.0"
 DEFAULT_W0_VALUES_A = "0.925,0.94,0.955,0.970"
 
 
@@ -395,49 +393,42 @@ def write_csv(path: Path, results: dict[DistillationPoint, PointResult]) -> None
 
 
 def plot_ratio(plt, figure_dir: Path, results: dict[DistillationPoint, PointResult], args) -> Path:
-    from matplotlib.colors import TwoSlopeNorm
-    from matplotlib.ticker import NullLocator
-
     x_values = p_ge_values(args)
     y_values = w0_values(args)
-    x = np.array(x_values, dtype=float)
-    y = np.array(y_values, dtype=float)
-    ratio = np.array(
+    ratio = [
         [
-            [
-                swap_over_dist(results[DistillationPoint(p_ge=x_value, w0=y_value, p_swap=args.p_swap, t_coh=args.t_coh)])
-                for x_value in x_values
-            ]
-            for y_value in y_values
-        ],
-        dtype=float,
-    )
+            swap_over_dist(
+                results[
+                    DistillationPoint(
+                        p_ge=x_value,
+                        w0=y_value,
+                        p_swap=args.p_swap,
+                        t_coh=args.t_coh,
+                    )
+                ]
+            )
+            for x_value in x_values
+        ]
+        for y_value in y_values
+    ]
 
     fig, ax = plt.subplots(
         figsize=(OPTIMALITY_LINE_WIDTH_INCHES, OPTIMALITY_HEIGHT_INCHES)
     )
-    finite_ratio = ratio[np.isfinite(ratio)]
-    contour_kwargs = {"levels": 21, "cmap": "BrBG"}
-    if finite_ratio.size > 0:
-        ratio_min = float(np.nanmin(finite_ratio))
-        ratio_max = float(np.nanmax(finite_ratio))
-        if ratio_min < 1.0 < ratio_max:
-            contour_kwargs["norm"] = TwoSlopeNorm(vmin=ratio_min, vcenter=1.0, vmax=ratio_max)
-
-    heatmap = ax.contourf(x, y, np.ma.masked_invalid(ratio), **contour_kwargs)
-    ax.set_xscale("log")
-    ax.xaxis.set_minor_locator(NullLocator())
-    ax.set_xlabel(r"Generation success probability $p_{\mathrm{ge}}$")
-    ax.set_ylabel(r"Initial Werner parameter $w_0$")
-    ax.set_xticks(x)
-    ax.set_yticks(y)
-    ax.set_xticklabels([f"{value:.12g}" for value in x_values])
-    ax.set_yticklabels([f"{value:.12g}" for value in y_values])
-    style_axes(ax)
-    fig.colorbar(
-        heatmap,
-        ax=ax,
-        label=r"$\mathrm{SKR}_{\mathrm{swap}}/\mathrm{SKR}_{\mathrm{dist\!-\!swap}}$",
+    draw_ratio_contour(
+        fig,
+        ax,
+        x_values,
+        y_values,
+        ratio,
+        cmap="BrBG",
+        colorbar_label=(
+            r"$\mathrm{SKR}_{\mathrm{swap}}/"
+            r"\mathrm{SKR}_{\mathrm{dist\!-\!swap}}$"
+        ),
+        xlabel=r"Generation success probability $p_{\mathrm{ge}}$",
+        ylabel=r"Initial Werner parameter $w_0$",
+        log_x=True,
     )
 
     plot_profile = get_plot_profile(args.plot_profile)

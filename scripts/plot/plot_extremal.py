@@ -161,8 +161,19 @@ def werner_to_fid(werner):
     return (1.0 + 3.0 * werner) / 4.0
 
 
-def plot_pmf(plt, output_dir, file_stem, t, pmf_min, pmf_max, plot_profile):
-    fig, ax = plt.subplots()
+def plot_pmf(
+    plt,
+    output_dir,
+    file_stem,
+    t,
+    pmf_min,
+    pmf_max,
+    plot_profile,
+    *,
+    figure_size=None,
+    bbox_inches="tight",
+):
+    fig, ax = plt.subplots(figsize=figure_size)
 
     ax.plot(
         t,
@@ -187,12 +198,27 @@ def plot_pmf(plt, output_dir, file_stem, t, pmf_min, pmf_max, plot_profile):
     style_axes(ax)
     ax.legend(frameon=False, loc="best")
 
-    save_figure(fig, output_path(output_dir, file_stem, "pmf", plot_profile))
+    save_figure(
+        fig,
+        output_path(output_dir, file_stem, "pmf", plot_profile),
+        bbox_inches=bbox_inches,
+    )
     plt.close(fig)
 
 
-def plot_cdf(plt, output_dir, file_stem, t, cdf_min, cdf_max, plot_profile):
-    fig, ax = plt.subplots()
+def plot_cdf(
+    plt,
+    output_dir,
+    file_stem,
+    t,
+    cdf_min,
+    cdf_max,
+    plot_profile,
+    *,
+    figure_size=None,
+    bbox_inches="tight",
+):
+    fig, ax = plt.subplots(figsize=figure_size)
 
     ax.fill_between(
         t,
@@ -226,7 +252,11 @@ def plot_cdf(plt, output_dir, file_stem, t, cdf_min, cdf_max, plot_profile):
     style_axes(ax)
     ax.legend(frameon=False, loc="lower right")
 
-    save_figure(fig, output_path(output_dir, file_stem, "cdf", plot_profile))
+    save_figure(
+        fig,
+        output_path(output_dir, file_stem, "cdf", plot_profile),
+        bbox_inches=bbox_inches,
+    )
     plt.close(fig)
 
 

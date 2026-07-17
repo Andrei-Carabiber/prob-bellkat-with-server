@@ -1,6 +1,7 @@
 import BellKAT.QuantumPrelude hiding (lookup)
+import qualified Common.NondetTopology as Nondet
 import qualified Common.NetworkConfig as Net
-import Data.List (intercalate, stripPrefix)
+import Data.List (stripPrefix)
 import System.Environment (getArgs, withArgs)
 import Text.Read (readMaybe)
 
@@ -23,102 +24,16 @@ defaultScenario = Scenario
     , scTCohOverride = Nothing
     }
 
-missingAnyGoal :: QBKATTest
-missingAnyGoal =
-        "A" /~? "C"
-    &&* "B" /~? "D"
-
-leftAGuard :: QBKATTest
-leftAGuard = hasSubset ["A" ~ "X", "X" ~ "Y"] &&* "A" /~? "Y" &&* "A" /~? "C"
-
-leftBGuard :: QBKATTest
-leftBGuard = hasSubset ["B" ~ "X", "X" ~ "Y"] &&* "B" /~? "Y" &&* "B" /~? "D"
-
-goalACGuard :: QBKATTest
-goalACGuard = hasSubset ["A" ~ "Y", "C" ~ "Y"] &&* "A" /~? "C"
-
-goalBDGuard :: QBKATTest
-goalBDGuard = hasSubset ["B" ~ "Y", "D" ~ "Y"] &&* "B" /~? "D"
-
 protocol :: Scenario -> QBKATPolicy
 protocol scenario =
-    while loopGuard loopBody
-  where
-    loopGuard = selectedLoopGuard scenario
-    loopBody =
-        generations
-        <>
-        chooseLeftBranch
-        <>
-        chooseRightEndpoint
-
-generations :: QBKATPolicy
-generations =
-        ucreate ("A", "X")
-    <||>
-        ucreate ("B", "X")
-    <||>
-        ucreate ("X", "Y")
-    <||>
-        ucreate ("C", "Y")
-    <||>
-        ucreate ("D", "Y")
-
-chooseLeftBranch :: QBKATPolicy
-chooseLeftBranch =
-        ite leftAGuard
-            (swap "X" ("A", "Y"))
-            mempty
-    <||>
-        ite leftBGuard
-            (swap "X" ("B", "Y"))
-            mempty
-
-chooseRightEndpoint :: QBKATPolicy
-chooseRightEndpoint =
-        ite goalACGuard
-            (swap "Y" ("A", "C"))
-            mempty
-    <||>
-        ite goalBDGuard
-            (swap "Y" ("B", "D"))
-            mempty
-
-events :: [(String, QBKATTest)]
-events =
-    [ ("a-c", "A" ~~? "C")
-    , ("b-d", "B" ~~? "D")
-    , ("either", "A" ~~? "C" ||* "B" ~~? "D")
-    , ("a-c-or-b-d", "A" ~~? "C" ||* "B" ~~? "D")
-    ]
-
-loopTests :: [(String, QBKATTest)]
-loopTests =
-    [ ("a-c", "A" /~? "C")
-    , ("b-d", "B" /~? "D")
-    , ("either", missingAnyGoal)
-    , ("a-c-or-b-d", missingAnyGoal)
-    ]
+    Nondet.leftToRightProtocol (selectedLoopGuard scenario)
 
 selectedLoopGuard :: Scenario -> QBKATTest
 selectedLoopGuard scenario
     | scAdaptLoopTest scenario =
-        maybe
-            (error $ "missing loop test for event " <> show (scEventName scenario))
-            id
-            (lookup (scEventName scenario) loopTests)
+        either error id (Nondet.selectLoopTest (scEventName scenario))
     | otherwise =
-        missingAnyGoal
-
-selectEvent :: String -> Either String QBKATTest
-selectEvent name =
-    maybe
-        (Left $ "Unknown event '" <> name <> "'. Available events: " <> availableEvents)
-        Right
-        (lookup name events)
-
-availableEvents :: String
-availableEvents = intercalate ", " (fmap fst events)
+        Nondet.missingAnyGoal
 
 readFlag :: Read a => String -> String -> Either String a
 readFlag flag raw =
@@ -195,26 +110,8 @@ validateScenario scenario
   where
     invalidProbability value = value < 0 || value > 1
 
-capacityPairs :: [(Location, Location)]
-capacityPairs =
-    generationLinks <>
-    [ ("A", "Y")
-    , ("B", "Y")
-    , ("A", "C")
-    , ("B", "D")
-    ]
-
 nb :: NetworkBounds QBKATTag
-nb = Net.networkBoundsFor capacityPairs
-
-generationLinks :: [(Location, Location)]
-generationLinks =
-    [ ("A", "X")
-    , ("B", "X")
-    , ("X", "Y")
-    , ("C", "Y")
-    , ("D", "Y")
-    ]
+nb = Nondet.protocolBounds Nondet.LeftToRight
 
 networkParameters :: Scenario -> Net.NetworkParameters
 networkParameters scenario =
@@ -243,13 +140,13 @@ networkParameters scenario =
 
 actionConfig :: Scenario -> ProbabilisticActionConfiguration
 actionConfig scenario =
-    Net.actionConfigFor (networkParameters scenario) generationLinks ["X", "Y"]
+    Nondet.actionConfigFor (networkParameters scenario)
 
 main :: IO ()
 main = do
     args <- getArgs
     (scenario, qbkatArgs) <-
         either fail pure (stripExampleArgs args)
-    ev <- either fail pure (selectEvent (scEventName scenario))
+    ev <- either fail pure (Nondet.selectEvent (scEventName scenario))
     withArgs qbkatArgs $
         qbkatMainD (actionConfig scenario) nb ev (protocol scenario) mempty

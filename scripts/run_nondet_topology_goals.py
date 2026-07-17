@@ -2,8 +2,12 @@
 
 import argparse
 import csv
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.analysis.swap_comparison.common import (
     build_command,
@@ -14,6 +18,8 @@ from scripts.analysis.swap_comparison.common import (
 )
 from scripts.plot.config import (
     DEFAULT_PROFILE,
+    NONDET_HEIGHT_INCHES,
+    NONDET_LINE_WIDTH_INCHES,
     PLOT_SETTINGS,
     TIME_AXIS_LABEL,
     get_plot_profile,
@@ -37,6 +43,7 @@ DEFAULT_TRUNCATION = 100
 LINE_ALPHA = 0.82
 BAND_ALPHA = 0.14
 PLOT_KINDS = ("pmf", "cdf", "both")
+CDF_Y_TICKS = (0.0, 0.25, 0.5, 0.75, 1.0)
 
 
 @dataclass(frozen=True)
@@ -124,7 +131,7 @@ def parse_args():
     )
     parser.add_argument(
         "--executable",
-        default="quantP_nondet_topology_goals",
+        default="quantP_compare_nondet_goals",
         help="Cabal executable name, or path to an already-built executable.",
     )
     parser.add_argument(
@@ -155,6 +162,21 @@ def parse_args():
         "--plots-only",
         action="store_true",
         help="Skip Cabal runs and regenerate figures from existing JSON dumps.",
+    )
+    parser.add_argument(
+        "--no-legend",
+        action="store_true",
+        help="Omit the legend from the joint PMF/CDF band figures.",
+    )
+    parser.add_argument(
+        "--no-y-axis-label",
+        action="store_true",
+        help="Omit the y-axis label from the joint PMF/CDF band figures.",
+    )
+    parser.add_argument(
+        "--no-y-ticks",
+        action="store_true",
+        help="Omit y-axis ticks and tick labels from the joint PMF/CDF band figures.",
     )
     parser.add_argument(
         "--no-build",
@@ -298,8 +320,29 @@ def plot_goal_extremal(plt, figure_dir, goal, json_path, plot_profile):
     series = load_extremal_series(json_path)
     t, pmf_min, pmf_max, cdf_min, cdf_max = derive_plot_series(series)
     file_stem = f"nondet_topology_goals_{goal.name}"
-    plot_pmf(plt, figure_dir, file_stem, t, pmf_min, pmf_max, plot_profile)
-    plot_cdf(plt, figure_dir, file_stem, t, cdf_min, cdf_max, plot_profile)
+    figure_size = (NONDET_LINE_WIDTH_INCHES, NONDET_HEIGHT_INCHES)
+    plot_pmf(
+        plt,
+        figure_dir,
+        file_stem,
+        t,
+        pmf_min,
+        pmf_max,
+        plot_profile,
+        figure_size=figure_size,
+        bbox_inches=None,
+    )
+    plot_cdf(
+        plt,
+        figure_dir,
+        file_stem,
+        t,
+        cdf_min,
+        cdf_max,
+        plot_profile,
+        figure_size=figure_size,
+        bbox_inches=None,
+    )
 
 
 def band_series(series, plot_kind):
@@ -309,15 +352,59 @@ def band_series(series, plot_kind):
     return t, pmf_min, pmf_max
 
 
-def plot_joint_bands(plt, figure_dir, goal_paths, plot_kind, plot_profile):
-    fig, ax = plt.subplots()
-    max_upper = 0.0
+def goal_legend_handles(goals):
+    from matplotlib.lines import Line2D
 
+    return [
+        Line2D(
+            [0],
+            [0],
+            color=goal.color,
+            alpha=LINE_ALPHA,
+            linestyle="-",
+            linewidth=1.0,
+            label=goal.label,
+        )
+        for goal in goals
+    ]
+
+
+def configure_probability_y_axis(
+    ax,
+    plot_kind,
+    *,
+    no_y_axis_label=False,
+    no_y_ticks=False,
+):
+    if plot_kind == "cdf":
+        ax.set_ylim(0.0, 1.0)
+        ax.set_yticks(CDF_Y_TICKS)
+        label = "Cumulative probability"
+    else:
+        label = "Probability"
+
+    ax.set_ylabel("" if no_y_axis_label else label)
+    if no_y_ticks:
+        ax.tick_params(axis="y", which="both", left=False, labelleft=False)
+
+
+def plot_joint_bands(
+    plt,
+    figure_dir,
+    goal_paths,
+    plot_kind,
+    plot_profile,
+    *,
+    no_legend=False,
+    no_y_axis_label=False,
+    no_y_ticks=False,
+):
+    fig, ax = plt.subplots(
+        figsize=(NONDET_LINE_WIDTH_INCHES, NONDET_HEIGHT_INCHES)
+    )
     for goal, json_path in goal_paths:
         series = load_extremal_series(json_path)
         t, lower, upper = band_series(series, plot_kind)
-        if upper:
-            max_upper = max(max_upper, max(upper))
         ax.fill_between(
             t,
             lower,
@@ -345,21 +432,20 @@ def plot_joint_bands(plt, figure_dir, goal_paths, plot_kind, plot_profile):
         )
 
     ax.set_xlabel(TIME_AXIS_LABEL)
-    if plot_kind == "cdf":
-        ax.set_ylabel("Cumulative probability")
-        if max_upper <= 0.0:
-            ax.set_ylim(0.0, 1.0)
-        elif max_upper < 0.05:
-            ax.set_ylim(0.0, max_upper * 1.15)
-        else:
-            ax.set_ylim(0.0, 1.0)
-        legend_loc = "upper left"
-    else:
-        ax.set_ylabel("Probability")
-        legend_loc = "best"
+    configure_probability_y_axis(
+        ax,
+        plot_kind,
+        no_y_axis_label=no_y_axis_label,
+        no_y_ticks=no_y_ticks,
+    )
 
     style_axes(ax)
-    ax.legend(frameon=False, loc=legend_loc)
+    if not no_legend:
+        ax.legend(
+            handles=goal_legend_handles([goal for goal, _ in goal_paths]),
+            frameon=False,
+            loc="best",
+        )
 
     figure_path = output_path(
         figure_dir,
@@ -367,7 +453,7 @@ def plot_joint_bands(plt, figure_dir, goal_paths, plot_kind, plot_profile):
         f"{plot_kind}_bands",
         plot_profile,
     )
-    save_figure(fig, figure_path)
+    save_figure(fig, figure_path, bbox_inches=None)
     plt.close(fig)
     print(f"Saved joint {plot_kind.upper()} band figure to {figure_path}")
     return figure_path
@@ -548,10 +634,37 @@ def main():
         )
 
     if args.plot_kind == "both":
-        plot_joint_bands(plt, figure_dir, goal_paths, "pmf", plot_profile)
-        plot_joint_bands(plt, figure_dir, goal_paths, "cdf", plot_profile)
+        plot_joint_bands(
+            plt,
+            figure_dir,
+            goal_paths,
+            "pmf",
+            plot_profile,
+            no_legend=args.no_legend,
+            no_y_axis_label=args.no_y_axis_label,
+            no_y_ticks=args.no_y_ticks,
+        )
+        plot_joint_bands(
+            plt,
+            figure_dir,
+            goal_paths,
+            "cdf",
+            plot_profile,
+            no_legend=args.no_legend,
+            no_y_axis_label=args.no_y_axis_label,
+            no_y_ticks=args.no_y_ticks,
+        )
     else:
-        plot_joint_bands(plt, figure_dir, goal_paths, args.plot_kind, plot_profile)
+        plot_joint_bands(
+            plt,
+            figure_dir,
+            goal_paths,
+            args.plot_kind,
+            plot_profile,
+            no_legend=args.no_legend,
+            no_y_axis_label=args.no_y_axis_label,
+            no_y_ticks=args.no_y_ticks,
+        )
 
     write_summary(output_dir / "nondet_topology_goals_summary.csv", rows)
     print_summary(rows)

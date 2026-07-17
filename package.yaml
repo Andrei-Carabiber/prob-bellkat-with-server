@@ -499,6 +499,7 @@ executables:
     source-dirs:
       - quantum-examples/infocom
     other-modules:
+      - Common.NondetTopology
       - Common.NetworkConfig
     default-extensions:
       - OverloadedStrings
@@ -512,8 +513,8 @@ executables:
     source-dirs:
       - quantum-examples/infocom
     other-modules:
+      - Common.NondetTopology
       - Common.NetworkConfig
-      - Common.SwapSchemes
     default-extensions:
       - OverloadedStrings
       - OverloadedLists

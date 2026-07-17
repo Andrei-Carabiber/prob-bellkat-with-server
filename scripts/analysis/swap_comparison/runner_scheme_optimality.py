@@ -11,8 +11,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
-
 from scripts.analysis.swap_comparison.common import (
     MDP_MODE,
     QMDP_MODE,
@@ -39,8 +37,8 @@ from scripts.plot.config import (
     get_plot_profile,
     output_path,
     save_figure,
-    style_axes,
 )
+from scripts.plot.contour import draw_ratio_contour
 
 
 BASELINE_PROTOCOL = "swap-asap"
@@ -140,10 +138,9 @@ DEFAULT_JOBS = (
         cmap="PiYG",
         numerator_protocols=SEQUENTIAL_PROTOCOLS,
         numerator_label="best sequential",
-        caption=r"$\max\mathrm{SKR}_{\mathrm{sequential}}/\mathrm{SKR}_{\mathrm{swap\!-\!asap}}$",
+        caption=r"$\mathrm{SKR}_{\mathrm{sequential}}/\mathrm{SKR}_{\mathrm{swap\!-\!asap}}$",
     ),
 )
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -642,6 +639,7 @@ def evaluate_point(
 
 def ratio_result(job: RatioJob, point_result: PointResult) -> RatioResult:
     baseline_skr = point_result.skr_by_protocol[BASELINE_PROTOCOL]
+    # TODO: add to the summary what was the protocol chosen for numerator
     numerator_protocol = max(
         job.numerator_protocols,
         key=lambda protocol: point_result.skr_by_protocol[protocol],
@@ -680,51 +678,22 @@ def require_axis_number(axis: str, value: float | int | None) -> float:
     return float(value)
 
 
-def tick_label(value: float | int) -> str:
-    return f"{float(value):.12g}"
-
-
 def draw_ratio(fig, ax, job: RatioJob, results: dict[SchemePoint, PointResult], args, *, show_xlabel: bool) -> None:
-    from matplotlib.colors import TwoSlopeNorm
-    from matplotlib.ticker import NullLocator
-
     x_values, y_values, grid = ratio_grid(job, results, args)
-    x = np.array([require_axis_number(job.x_axis, value) for value in x_values], dtype=float)
-    y = np.array([require_axis_number(job.y_axis, value) for value in y_values], dtype=float)
-    ratio = np.array([[entry.ratio for entry in row] for row in grid], dtype=float)
-
-    finite_ratio = ratio[np.isfinite(ratio)]
-    contour_kwargs = {"levels": 21, "cmap": job.cmap}
-    if finite_ratio.size > 0:
-        ratio_min = float(np.nanmin(finite_ratio))
-        ratio_max = float(np.nanmax(finite_ratio))
-        if ratio_min < 1.0 < ratio_max:
-            contour_kwargs["norm"] = TwoSlopeNorm(vmin=ratio_min, vcenter=1.0, vmax=ratio_max)
-
-    heatmap = ax.contourf(x, y, np.ma.masked_invalid(ratio), **contour_kwargs)
-    # Equal-SKR line:
-    # ax.contour(x, y, ratio, levels=[1.0], colors="black", linewidths=1.2)
-
-    if job.x_axis in LOG_AXES:
-        ax.set_xscale("log")
-        ax.xaxis.set_minor_locator(NullLocator())
-    if job.y_axis in LOG_AXES:
-        ax.set_yscale("log")
-        ax.yaxis.set_minor_locator(NullLocator())
-    ax.set_xlabel(axis_label(job.x_axis) if show_xlabel else "")
-    ax.set_ylabel(axis_label(job.y_axis))
-    ax.set_xticks(x)
-    ax.set_yticks(y)
-    ax.set_xticklabels(
-        [tick_label(require_axis_number(job.x_axis, value)) for value in x_values],
-        rotation=45,
-        ha="right",
-        rotation_mode="anchor",
+    draw_ratio_contour(
+        fig,
+        ax,
+        [require_axis_number(job.x_axis, value) for value in x_values],
+        [require_axis_number(job.y_axis, value) for value in y_values],
+        [[entry.ratio for entry in row] for row in grid],
+        cmap=job.cmap,
+        colorbar_label=job.caption,
+        xlabel=axis_label(job.x_axis),
+        ylabel=axis_label(job.y_axis),
+        log_x=job.x_axis in LOG_AXES,
+        log_y=job.y_axis in LOG_AXES,
+        show_xlabel=show_xlabel,
     )
-    ax.set_yticklabels([tick_label(require_axis_number(job.y_axis, value)) for value in y_values])
-    # ax.set_title(job.numerator_label + " over swap-asap")
-    style_axes(ax)
-    fig.colorbar(heatmap, ax=ax, label=job.caption)
 
 
 def plot_ratio(plt, figure_dir: Path, job: RatioJob, results: dict[SchemePoint, PointResult], args) -> Path:
