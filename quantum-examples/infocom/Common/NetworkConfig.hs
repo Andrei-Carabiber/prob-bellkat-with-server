@@ -80,10 +80,10 @@ pathPairs =
 physicalChannelLengths :: [((Location, Location), Int)]
 physicalChannelLengths =
     [ (("A", "X"), 2)
-    , (("B", "X"), 2)
+    , (("B", "X"), 1)
     , (("X", "Y"), 5)
     , (("Y", "C"), 4)
-    , (("Y", "D"), 3)
+    , (("Y", "D"), 1)
     , (("Y", "Z"), 5)
     , (("Z", "E"), 1)
     ]

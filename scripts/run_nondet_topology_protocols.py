@@ -34,6 +34,8 @@ from scripts.plot.plot_extremal import (
 )
 from scripts.run_nondet_topology_goals import (
     GOAL_BY_NAME,
+    MAX_BOUNDARY_LINEWIDTH,
+    MIN_BOUNDARY_LINEWIDTH,
     band_series,
     configure_probability_y_axis,
     coverage_budget,
@@ -327,7 +329,7 @@ def protocol_band_handles(protocols, color_for, no_shades=False):
             edgecolor=color_for(protocol),
             hatch=protocol.hatch or None,
             linestyle=protocol.linestyle,
-            linewidth=1.0,
+            linewidth=MAX_BOUNDARY_LINEWIDTH,
             label=protocol.label,
         )
         for protocol in protocols
@@ -359,7 +361,7 @@ def plot_goal_bands(
             color=protocol.color,
             alpha=LINE_ALPHA,
             linestyle=protocol.linestyle,
-            linewidth=1.0,
+            linewidth=MIN_BOUNDARY_LINEWIDTH,
         )
         ax.plot(
             t,
@@ -367,7 +369,7 @@ def plot_goal_bands(
             color=protocol.color,
             alpha=LINE_ALPHA,
             linestyle=protocol.linestyle,
-            linewidth=1.0,
+            linewidth=MAX_BOUNDARY_LINEWIDTH,
         )
 
     ax.set_xlabel(TIME_AXIS_LABEL)
@@ -430,7 +432,7 @@ def plot_joint_bands(
                 color=goal.color,
                 alpha=LINE_ALPHA,
                 linestyle=protocol.linestyle,
-                linewidth=1.0,
+                linewidth=MIN_BOUNDARY_LINEWIDTH,
             )
             ax.plot(
                 t,
@@ -438,7 +440,7 @@ def plot_joint_bands(
                 color=goal.color,
                 alpha=LINE_ALPHA,
                 linestyle=protocol.linestyle,
-                linewidth=1.0,
+                linewidth=MAX_BOUNDARY_LINEWIDTH,
             )
 
     ax.set_xlabel(TIME_AXIS_LABEL)

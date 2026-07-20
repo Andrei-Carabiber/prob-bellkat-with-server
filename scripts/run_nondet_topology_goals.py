@@ -42,6 +42,8 @@ STATIC_EVENT = "static"
 DEFAULT_TRUNCATION = 100
 LINE_ALPHA = 0.82
 BAND_ALPHA = 0.14
+MIN_BOUNDARY_LINEWIDTH = 0.8
+MAX_BOUNDARY_LINEWIDTH = 1.0
 PLOT_KINDS = ("pmf", "cdf", "both")
 CDF_Y_TICKS = (0.0, 0.25, 0.5, 0.75, 1.0)
 
@@ -162,6 +164,13 @@ def parse_args():
         "--plots-only",
         action="store_true",
         help="Skip Cabal runs and regenerate figures from existing JSON dumps.",
+    )
+    parser.add_argument(
+        "--no-shade",
+        "--no-shades",
+        dest="no_shades",
+        action="store_true",
+        help="Plot only the lower and upper boundaries, without shaded bands.",
     )
     parser.add_argument(
         "--no-legend",
@@ -395,6 +404,7 @@ def plot_joint_bands(
     plot_kind,
     plot_profile,
     *,
+    no_shades=False,
     no_legend=False,
     no_y_axis_label=False,
     no_y_ticks=False,
@@ -405,22 +415,23 @@ def plot_joint_bands(
     for goal, json_path in goal_paths:
         series = load_extremal_series(json_path)
         t, lower, upper = band_series(series, plot_kind)
-        ax.fill_between(
-            t,
-            lower,
-            upper,
-            color=goal.color,
-            alpha=BAND_ALPHA,
-            linewidth=0,
-            label=goal.label,
-        )
+        if not no_shades:
+            ax.fill_between(
+                t,
+                lower,
+                upper,
+                color=goal.color,
+                alpha=BAND_ALPHA,
+                linewidth=0,
+                label=goal.label,
+            )
         ax.plot(
             t,
             lower,
             color=goal.color,
             alpha=LINE_ALPHA,
             linestyle="-",
-            linewidth=1.0,
+            linewidth=MIN_BOUNDARY_LINEWIDTH,
         )
         ax.plot(
             t,
@@ -428,7 +439,7 @@ def plot_joint_bands(
             color=goal.color,
             alpha=LINE_ALPHA,
             linestyle="-",
-            linewidth=1.0,
+            linewidth=MAX_BOUNDARY_LINEWIDTH,
         )
 
     ax.set_xlabel(TIME_AXIS_LABEL)
@@ -640,6 +651,7 @@ def main():
             goal_paths,
             "pmf",
             plot_profile,
+            no_shades=args.no_shades,
             no_legend=args.no_legend,
             no_y_axis_label=args.no_y_axis_label,
             no_y_ticks=args.no_y_ticks,
@@ -650,6 +662,7 @@ def main():
             goal_paths,
             "cdf",
             plot_profile,
+            no_shades=args.no_shades,
             no_legend=args.no_legend,
             no_y_axis_label=args.no_y_axis_label,
             no_y_ticks=args.no_y_ticks,
@@ -661,6 +674,7 @@ def main():
             goal_paths,
             args.plot_kind,
             plot_profile,
+            no_shades=args.no_shades,
             no_legend=args.no_legend,
             no_y_axis_label=args.no_y_axis_label,
             no_y_ticks=args.no_y_ticks,
