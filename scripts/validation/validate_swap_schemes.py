@@ -26,6 +26,7 @@ from scripts.plot.config import (
     VALIDATION_LINE_WIDTH_INCHES,
     configure_matplotlib,
     get_plot_profile,
+    hide_overlapping_inner_x_tick_label,
     output_path,
     save_figure,
     style_axes,
@@ -60,11 +61,11 @@ REFERENCE_LINEWIDTH = 1.6
 WERNER_START_TIME = 1  # The conditional Werner value is undefined at t=0.
 VALIDATION_LABELS = {
     ("doubling", "qbkat"): "QBKAT doubling",
-    ("doubling", "reference"): r"Li et al. doubling",
-    ("left-to-right", "qbkat"): "QBKAT sequential",
-    ("left-to-right", "reference"): r"La Corte et al. sequential",
-    ("right-to-left", "qbkat"): "QBKAT sequential",
-    ("right-to-left", "reference"): r"La Corte et al. sequential",
+    ("doubling", "reference"): r"Li $\mathit{et\ al.}$ doubling",
+    ("left-to-right", "qbkat"): "QBKAT L-to-R",
+    ("left-to-right", "reference"): r"La Corte $\mathit{et\ al.}$ L-to-R",
+    ("right-to-left", "qbkat"): "QBKAT R-to-L",
+    ("right-to-left", "reference"): r"La Corte $\mathit{et\ al.}$ R-to-L",
 }
 PMF_KEYS = ("pmf", "delivery_pmf", "probabilities", "probability")
 CDF_KEYS = ("cdf", "delivery_cdf")
@@ -571,6 +572,9 @@ def plot_validation(
         right=True,
         labelright=True,
     )
+    pmf_ax.margins(x=0)
+    werner_ax.margins(x=0)
+    pmf_ax.set_xlim(left=0)
     style_axes(pmf_ax)
     style_axes(werner_ax)
 
@@ -582,7 +586,11 @@ def plot_validation(
             frameon=False,
             loc="upper center",
             bbox_to_anchor=(0.5, SWAP_COMPARISON_JOINT_LEGEND_Y),
-            ncol=2,
+            ncol=len(handles),
+            columnspacing=0.8,
+            handletextpad=0.4,
+            handlelength=1.5,
+            fontsize=8,
         )
 
     fig.subplots_adjust(
@@ -592,6 +600,7 @@ def plot_validation(
         top=SWAP_COMPARISON_JOINT_TOP,
         wspace=JOINT_PLOTS_WSPACE,
     )
+    hide_overlapping_inner_x_tick_label(fig, pmf_ax, werner_ax)
 
     figure_dir.mkdir(parents=True, exist_ok=True)
     combined_path = output_path(figure_dir, file_prefix, "validation", plot_profile)

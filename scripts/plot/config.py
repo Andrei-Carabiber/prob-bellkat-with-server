@@ -24,9 +24,9 @@ VALIDATION_COMBINED_HEIGHT_INCHES = 3.5
 
 SWAP_COMPARISON_COMBINED_LINE_WIDTH_INCHES = 7.16/1.5
 SWAP_COMPARISON_COMBINED_HEIGHT_INCHES = 1.75
-SWAP_COMPARISON_DETAIL_INSET_BOUNDS = (0.44, 0.38, 0.55, 0.55)
+SWAP_COMPARISON_DETAIL_INSET_BOUNDS = (0.34, 0.27, 0.64, 0.65)
 SWAP_COMPARISON_JOINT_LEGEND_Y = 0.98
-SWAP_COMPARISON_JOINT_TOP = 0.73
+SWAP_COMPARISON_JOINT_TOP = 0.82
 SWAP_COMPARISON_BINNED_LINE_WIDTH = 1.1
 
 OPTIMALITY_LINE_WIDTH_INCHES = 3.58/1.5
@@ -164,6 +164,25 @@ def latex_is_usable() -> bool:
 def style_axes(ax):
     configure_tick_formatter(ax)
     ax.grid(True, which="major", linestyle=":", linewidth=0.35, alpha=0.45)
+
+
+def hide_overlapping_inner_x_tick_label(fig, left_ax, right_ax, padding_points=2.0):
+    """Hide the left panel's last x label only when the two panels collide."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    left_labels = [label for label in left_ax.get_xticklabels() if label.get_visible()]
+    right_labels = [label for label in right_ax.get_xticklabels() if label.get_visible()]
+    if not left_labels or not right_labels:
+        return
+
+    left_label = max(left_labels, key=lambda label: label.get_window_extent(renderer).x1)
+    right_label = min(right_labels, key=lambda label: label.get_window_extent(renderer).x0)
+    padding_pixels = padding_points * fig.dpi / 72.0
+    if (
+        left_label.get_window_extent(renderer).x1 + padding_pixels
+        > right_label.get_window_extent(renderer).x0
+    ):
+        left_label.set_visible(False)
 
 
 def configure_tick_formatter(ax):

@@ -23,6 +23,7 @@ from scripts.plot.config import (
     TIME_AXIS_LABEL,
     JOINT_PLOTS_WSPACE,
     get_plot_profile,
+    hide_overlapping_inner_x_tick_label,
     output_path,
     save_figure,
 )
@@ -47,6 +48,10 @@ PURE_EVENT = "pure"
 MIXED_EVENT = "mixed"
 COLORS = ("#cddb87","#ee7833", "#7c0006", "#cc9cff", "#01b56c")
 LINE_ALPHA = 0.65
+PROTOCOL_LEGEND_LABELS = {
+    "left-to-right": "L-to-R",
+    "right-to-left": "R-to-L",
+}
 
 PMF_ASSERTION_TOLERANCE = 1e-4
 PMF_PLOT_KIND = "pmf"
@@ -185,6 +190,14 @@ def parse_args(config):
         ),
     )
     parser.add_argument(
+        "--show-detail-link",
+        action="store_true",
+        help=(
+            "Mark the source region and connect it to the --show-detail inset. "
+            "Requires --show-detail."
+        ),
+    )
+    parser.add_argument(
         "--show-skr-legend",
         action="store_true",
         help="Append each protocol's secret key rate, in scientific notation, to plot legends.",
@@ -244,6 +257,8 @@ def parse_args(config):
         parser.error("--binning must be a positive integer.")
     if args.show_detail is not None and not args.joint_plots:
         parser.error("--show-detail requires --joint-plots.")
+    if args.show_detail_link and args.show_detail is None:
+        parser.error("--show-detail-link requires --show-detail.")
     if args.smoke_test:
         if args.plots_only:
             parser.error("--smoke-test cannot be combined with --plots-only.")
@@ -741,12 +756,13 @@ def compute_secret_key_rate_from_split(pure_path, mixed_path):
 
 
 def protocol_legend_label(protocol, skr_by_protocol, show_skr):
+    label = PROTOCOL_LEGEND_LABELS.get(protocol, protocol)
     if not show_skr:
-        return protocol
+        return label
     skr = skr_by_protocol.get(protocol)
     if skr is None:
-        return protocol
-    return f"{protocol} SKR={skr:.2e}"
+        return label
+    return f"{label} SKR={skr:.2e}"
 
 
 def bin_time_series(t, values, bin_size):
@@ -834,6 +850,7 @@ def add_pmf_detail_inset(
     bin_size,
     only_binned,
     only_non_binned,
+    show_link=False,
 ):
     from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator
 
@@ -902,6 +919,14 @@ def add_pmf_detail_inset(
     inset_tick_labels[-1].set_ha("right")
     inset_ax.set_facecolor("white")
     inset_ax.patch.set_alpha(0.96)
+    if show_link:
+        pmf_ax.indicate_inset_zoom(
+            inset_ax,
+            edgecolor="0.65",
+            linewidth=0.5,
+            alpha=0.4,
+            zorder=4,
+        )
 
 
 def plot_combined_reachability(
@@ -989,7 +1014,7 @@ def plot_combined_quality(
         filtered = [
             (t_i, w)
             for t_i, w in zip(t, werner)
-            if w > 0.0
+            if t_i > 0 and w > 0.0
         ]
         if not filtered:
             continue
@@ -1045,6 +1070,7 @@ def plot_joint_pmf_quality(
     only_binned=False,
     only_non_binned=False,
     show_detail=None,
+    show_detail_link=False,
 ):
     plot_profile = get_plot_profile(config.plot_profile)
     skr_by_protocol = skr_by_protocol or {}
@@ -1084,6 +1110,7 @@ def plot_joint_pmf_quality(
             bin_size=bin_size,
             only_binned=only_binned,
             only_non_binned=only_non_binned,
+            show_link=show_detail_link,
         )
 
     for index, (protocol, pure_path, mixed_path) in enumerate(protocol_paths):
@@ -1098,7 +1125,7 @@ def plot_joint_pmf_quality(
         filtered = [
             (t_i, w)
             for t_i, w in zip(t, werner)
-            if w > 0.0
+            if t_i > 0 and w > 0.0
         ]
         if not filtered:
             continue
@@ -1139,6 +1166,9 @@ def plot_joint_pmf_quality(
         right=True,
         labelright=True,
     )
+    pmf_ax.margins(x=0)
+    quality_ax.margins(x=0)
+    pmf_ax.set_xlim(left=0)
 
     style_axes(pmf_ax)
     style_axes(quality_ax)
@@ -1151,7 +1181,11 @@ def plot_joint_pmf_quality(
             frameon=False,
             loc="upper center",
             bbox_to_anchor=(0.5, SWAP_COMPARISON_JOINT_LEGEND_Y),
-            ncol=2,
+            ncol=len(handles),
+            columnspacing=0.8,
+            handletextpad=0.4,
+            handlelength=1.5,
+            fontsize=8,
         )
 
     fig.subplots_adjust(
@@ -1161,6 +1195,7 @@ def plot_joint_pmf_quality(
         top=SWAP_COMPARISON_JOINT_TOP,
         wspace=JOINT_PLOTS_WSPACE,
     )
+    hide_overlapping_inner_x_tick_label(fig, pmf_ax, quality_ax)
     figure_path = output_path(figure_dir, config.figure_prefix, suffix, plot_profile)
     save_figure(fig, figure_path, tight_layout=False, bbox_inches=None)
     plt.close(fig)
@@ -1408,6 +1443,7 @@ def run_comparison(config):
             only_binned=args.only_binned_plots,
             only_non_binned=args.only_non_binned,
             show_detail=args.show_detail,
+            show_detail_link=args.show_detail_link,
         )
 
     print("\nSecret key rates:")
