@@ -10,27 +10,61 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.plot.config import DEFAULT_PROFILE, PLOT_SETTINGS
-from scripts.validation.validate_swap_schemes import PROTOCOLS, run_validation
+from scripts.validation.validate_swap_schemes import (
+    DEFAULT_PROTOCOLS,
+    PROTOCOLS,
+    run_validation,
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate the 5-node swap-scheme protocols with instantaneous swaps. "
-            "swap-asap is checked against Goodenough et al. Appendix D.1 with n=4; "
-            "doubling and sequential policies can be checked against external "
-            "Li/La Corte pickle references when those files are available."
+            "Validate the 5-node swap-scheme protocols with instantaneous operations. "
+            "swap-asap is checked against Goodenough et al. Appendix D.1 under "
+            "deterministic swaps; doubling and sequential swapping are checked at "
+            "the requested swap probability against Li/La Corte pickle references."
         )
     )
     parser.add_argument(
         "--protocol",
         action="append",
         choices=PROTOCOLS,
-        help="Protocol to run. Can be passed more than once. Defaults to all four.",
+        help=(
+            "Protocol to run. Can be passed more than once. Defaults to "
+            f"{', '.join(DEFAULT_PROTOCOLS)}."
+        ),
     )
     parser.add_argument("--p-gen", type=float, default=9.187e-04)
+    parser.add_argument(
+        "--p-swap",
+        type=float,
+        default=0.5,
+        help=(
+            "Swap success probability for the Li/La Corte comparisons. "
+            "The Goodenough swap-asap comparison always uses deterministic swaps."
+        ),
+    )
+    parser.add_argument(
+        "--w0",
+        type=float,
+        default=0.952,
+        help=(
+            "Elementary-pair Werner parameter for the Li/La Corte comparisons. "
+            "The Goodenough swap-asap comparison always uses pure elementary pairs."
+        ),
+    )
     parser.add_argument("--t-coh", type=int, default=144000)
-    parser.add_argument("--truncation", type=int, default=7500)
+    parser.add_argument(
+        "--reference-t-coh",
+        type=int,
+        default=288000,
+        help=(
+            "Uniform coherence time for the Li/La Corte comparisons. "
+            "--t-coh is reserved for the Goodenough swap-asap comparison."
+        ),
+    )
+    parser.add_argument("--truncation", type=int, default=100000)
     parser.add_argument(
         "--executable",
         default="quantP_validate_swap_schemes",
@@ -73,12 +107,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--lacorte-left-pmf-reference",
-        default="scripts/tests/dump/infocom_left_to_right_pmf.pkl",
+        default="scripts/tests/dump/infocom_sequential_pmf.pkl",
         help="PMF pickle containing La Corte et al. data for left-to-right.",
     )
     parser.add_argument(
         "--lacorte-left-werner-reference",
-        default="scripts/tests/dump/infocom_left_to_right_werner.pkl",
+        default="scripts/tests/dump/infocom_sequential_werner.pkl",
         help="Werner pickle containing La Corte et al. data for left-to-right.",
     )
     parser.add_argument(
@@ -102,6 +136,15 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=1e-6,
         help="Absolute tolerance for optional pickle reference series.",
+    )
+    parser.add_argument(
+        "--werner-pmf-threshold",
+        type=float,
+        default=1e-7,
+        help=(
+            "Compare conditional Werner values only where both QBKAT and the "
+            "reference PMFs meet this support threshold."
+        ),
     )
     parser.add_argument(
         "--tail-tolerance",
@@ -147,14 +190,22 @@ def parse_args() -> argparse.Namespace:
 def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if not 0.0 < args.p_gen < 1.0:
         parser.error("--p-gen must be in (0, 1).")
+    if not 0.0 <= args.p_swap <= 1.0:
+        parser.error("--p-swap must be in [0, 1].")
+    if not 0.0 <= args.w0 <= 1.0:
+        parser.error("--w0 must be in [0, 1].")
     if args.t_coh <= 0:
         parser.error("--t-coh must be positive.")
+    if args.reference_t_coh <= 0:
+        parser.error("--reference-t-coh must be positive.")
     if args.truncation < 0:
         parser.error("--truncation must be non-negative.")
     if args.goodenough_atol < 0.0:
         parser.error("--goodenough-atol must be non-negative.")
     if args.reference_atol < 0.0:
         parser.error("--reference-atol must be non-negative.")
+    if args.werner_pmf_threshold < 0.0:
+        parser.error("--werner-pmf-threshold must be non-negative.")
     if args.tail_tolerance < 0.0:
         parser.error("--tail-tolerance must be non-negative.")
 

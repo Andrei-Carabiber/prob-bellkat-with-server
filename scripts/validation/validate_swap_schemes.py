@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from matplotlib.lines import Line2D
 
 from scripts.analysis.swap_comparison.common import (
     COLORS,
@@ -17,9 +16,12 @@ from scripts.analysis.swap_comparison.common import (
     run_command,
 )
 from scripts.plot.config import (
+    JOINT_PLOTS_WSPACE,
+    SWAP_COMPARISON_COMBINED_HEIGHT_INCHES,
+    SWAP_COMPARISON_COMBINED_LINE_WIDTH_INCHES,
+    SWAP_COMPARISON_JOINT_LEGEND_Y,
+    SWAP_COMPARISON_JOINT_TOP,
     TIME_AXIS_LABEL,
-    VALIDATION_COMBINED_HEIGHT_INCHES,
-    VALIDATION_COMBINED_LINE_WIDTH_INCHES,
     VALIDATION_HEIGHT_INCHES,
     VALIDATION_LINE_WIDTH_INCHES,
     configure_matplotlib,
@@ -36,33 +38,33 @@ from scripts.plot.plot_extremal import (
 
 
 PROTOCOLS = ("swap-asap", "doubling", "left-to-right", "right-to-left")
+DEFAULT_PROTOCOLS = ("swap-asap", "doubling", "left-to-right")
 GOODENOUGH_SEGMENTS = 4
 
 PROTOCOL_COLORS = {
-    "swap-asap": COLORS[0],
+    "doubling": COLORS[0],
     "left-to-right": COLORS[1],
     "right-to-left": COLORS[1],
-    "doubling": COLORS[2],
+    "swap-asap": COLORS[2],
 }
 
 REFERENCE_COLORS = {
-    "doubling": "#00B8D9",
-    "left-to-right": "#003B73",
-    "right-to-left": "#003B73",
+    "doubling": "#005AB5",
+    "left-to-right": "#7A1FA2",
+    "right-to-left": "#7A1FA2",
 }
-QBKAT_PMF_LINESTYLE = ":"
-REFERENCE_PMF_LINESTYLE = "-."
-QBKAT_WERNER_LINESTYLE = "-"
-REFERENCE_WERNER_LINESTYLE = "--"
-REFERENCE_LINEWIDTH = 2.4
-PROTOCOL_LABELS = {
-    "left-to-right": "sequential",
-    "right-to-left": "sequential",
-}
-REFERENCE_LABELS = {
-    "doubling": r"Li \textit{et al.}",
-    "left-to-right": r"La Corte \textit{et al.}",
-    "right-to-left": r"La Corte \textit{et al.}",
+
+QBKAT_LINESTYLE = "-"
+REFERENCE_LINESTYLE = "--"
+REFERENCE_LINEWIDTH = 1.6
+WERNER_START_TIME = 1  # The conditional Werner value is undefined at t=0.
+VALIDATION_LABELS = {
+    ("doubling", "qbkat"): "QBKAT doubling",
+    ("doubling", "reference"): r"Li et al. doubling",
+    ("left-to-right", "qbkat"): "QBKAT sequential",
+    ("left-to-right", "reference"): r"La Corte et al. sequential",
+    ("right-to-left", "qbkat"): "QBKAT sequential",
+    ("right-to-left", "reference"): r"La Corte et al. sequential",
 }
 PMF_KEYS = ("pmf", "delivery_pmf", "probabilities", "probability")
 CDF_KEYS = ("cdf", "delivery_cdf")
@@ -165,7 +167,7 @@ def run_qmdp_case(args: Any, protocol: str, event: str, output_dir: Path) -> Pat
 
     command = [
         *executable_command(args.executable),
-        "--paper-assumptions",
+        "--paper-assumptions" if protocol == "swap-asap" else "--homogeneous-links",
         "--protocol",
         protocol,
         "--event",
@@ -173,11 +175,11 @@ def run_qmdp_case(args: Any, protocol: str, event: str, output_dir: Path) -> Pat
         "--p-gen",
         f"{args.p_gen:.17g}",
         "--p-swap",
-        "1",
+        "1" if protocol == "swap-asap" else f"{args.p_swap:.17g}",
         "--w0",
-        "1",
+        "1" if protocol == "swap-asap" else f"{args.w0:.17g}",
         "--t-coh",
-        str(args.t_coh),
+        str(args.t_coh if protocol == "swap-asap" else args.reference_t_coh),
         "--json",
         "qmdp",
         "--compute-extremal",
@@ -388,6 +390,7 @@ def compare_reference(
     reference: ReferenceSeries,
     *,
     atol: float,
+    werner_pmf_threshold: float,
 ) -> dict[str, float | str]:
     row: dict[str, float | str] = {
         "protocol": series.protocol,
@@ -408,12 +411,16 @@ def compare_reference(
             atol,
         )
     if reference.werner is not None:
-        row["werner_max_abs_diff"] = compare_arrays(
+        row["werner_max_abs_diff"] = compare_conditional_werner(
             series.werner,
             reference.werner,
+            series.pmf,
+            reference.pmf,
             f"{series.protocol} Werner",
             atol,
+            werner_pmf_threshold,
         )
+        row["werner_pmf_threshold"] = werner_pmf_threshold
     if reference.final_lambda is not None:
         diff = series.pure_mass - reference.final_lambda
         if abs(diff) > atol:
@@ -438,6 +445,45 @@ def compare_arrays(model: np.ndarray, reference: np.ndarray, label: str, atol: f
     if len(model) != len(reference):
         print(
             f"{label}: compared first {common} points only "
+            f"(model={len(model)}, reference={len(reference)})."
+        )
+    return diff
+
+
+def compare_conditional_werner(
+    model: np.ndarray,
+    reference: np.ndarray,
+    model_pmf: np.ndarray,
+    reference_pmf: np.ndarray | None,
+    label: str,
+    atol: float,
+    pmf_threshold: float,
+) -> float:
+    common = min(len(model), len(reference), len(model_pmf))
+    if reference_pmf is not None:
+        common = min(common, len(reference_pmf))
+    if common == 0:
+        raise SystemExit(f"{label}: cannot compare empty arrays.")
+
+    supported = model_pmf[:common] >= pmf_threshold
+    if reference_pmf is not None:
+        supported &= reference_pmf[:common] >= pmf_threshold
+    if not np.any(supported):
+        raise SystemExit(
+            f"{label}: no points meet Werner PMF support threshold {pmf_threshold:.12e}."
+        )
+
+    diff = float(
+        np.max(np.abs(model[:common][supported] - reference[:common][supported]))
+    )
+    if diff > atol:
+        raise SystemExit(
+            f"{label} max abs diff {diff:.12e} exceeds tolerance {atol:.12e} "
+            f"on PMF support >= {pmf_threshold:.12e}."
+        )
+    if len(model) != len(reference):
+        print(
+            f"{label}: compared supported points in the first {common} entries only "
             f"(model={len(model)}, reference={len(reference)})."
         )
     return diff
@@ -495,36 +541,61 @@ def plot_validation(
     plot_profile_name: str,
     series_by_protocol: dict[str, ProtocolSeries],
     references: dict[str, ReferenceSeries],
-    swap_asap_oracle: float,
-    *,
     skip_werner_legend: bool = False,
 ) -> dict[str, Path]:
     plot_profile = get_plot_profile(plot_profile_name)
-    fig, pmf_ax = plt.subplots(
+    fig, (pmf_ax, werner_ax) = plt.subplots(
+        1,
+        2,
+        sharex=True,
         figsize=(
-            VALIDATION_COMBINED_LINE_WIDTH_INCHES,
-            VALIDATION_COMBINED_HEIGHT_INCHES,
-        )
+            SWAP_COMPARISON_COMBINED_LINE_WIDTH_INCHES,
+            SWAP_COMPARISON_COMBINED_HEIGHT_INCHES,
+        ),
+        gridspec_kw={"width_ratios": (1.0, 1.0), "wspace": JOINT_PLOTS_WSPACE},
     )
-    werner_ax = pmf_ax.twinx()
-    protocols = plot_combined_validation_curves(
-        pmf_ax,
-        werner_ax,
-        series_by_protocol,
-        references,
-    )
+    plot_validation_curves(pmf_ax, "pmf", series_by_protocol, references)
+    plot_validation_curves(werner_ax, "werner", series_by_protocol, references)
 
     pmf_ax.set_ylabel("Probability")
     werner_ax.set_ylabel("Werner parameter")
     pmf_ax.set_xlabel(TIME_AXIS_LABEL)
+    werner_ax.set_xlabel(TIME_AXIS_LABEL)
+    pmf_ax.tick_params(axis="y", right=False, labelright=False)
+    werner_ax.yaxis.set_label_position("right")
+    werner_ax.yaxis.tick_right()
+    werner_ax.tick_params(
+        axis="y",
+        left=False,
+        labelleft=False,
+        right=True,
+        labelright=True,
+    )
     style_axes(pmf_ax)
     style_axes(werner_ax)
-    werner_ax.grid(False)
-    add_combined_legends(pmf_ax, protocols)
+
+    handles, labels = pmf_ax.get_legend_handles_labels()
+    if handles:
+        fig.legend(
+            handles,
+            labels,
+            frameon=False,
+            loc="upper center",
+            bbox_to_anchor=(0.5, SWAP_COMPARISON_JOINT_LEGEND_Y),
+            ncol=2,
+        )
+
+    fig.subplots_adjust(
+        left=0.08,
+        right=0.88,
+        bottom=0.21,
+        top=SWAP_COMPARISON_JOINT_TOP,
+        wspace=JOINT_PLOTS_WSPACE,
+    )
 
     figure_dir.mkdir(parents=True, exist_ok=True)
     combined_path = output_path(figure_dir, file_prefix, "validation", plot_profile)
-    save_figure(fig, combined_path, tight_layout=True, bbox_inches=None)
+    save_figure(fig, combined_path, tight_layout=False, bbox_inches=None)
     plt.close(fig)
 
     pmf_path = plot_pmf_validation(
@@ -554,7 +625,7 @@ def plot_validation(
 def plotted_protocols(series_by_protocol: dict[str, ProtocolSeries]) -> tuple[str, ...]:
     protocols = [
         protocol
-        for protocol in ("swap-asap", "doubling")
+        for protocol in ("doubling",)
         if protocol in series_by_protocol
     ]
     sequential = next(
@@ -570,108 +641,45 @@ def plotted_protocols(series_by_protocol: dict[str, ProtocolSeries]) -> tuple[st
     return tuple(protocols)
 
 
-def plot_combined_validation_curves(
-    pmf_ax: Any,
-    werner_ax: Any,
+def plot_validation_curves(
+    ax: Any,
+    attribute: str,
     series_by_protocol: dict[str, ProtocolSeries],
     references: dict[str, ReferenceSeries],
-) -> tuple[str, ...]:
+) -> None:
     protocols = plotted_protocols(series_by_protocol)
     for protocol in protocols:
         color = PROTOCOL_COLORS[protocol]
         series = series_by_protocol[protocol]
-        pmf_ax.plot(
-            np.arange(len(series.pmf)),
-            series.pmf,
+        values = getattr(series, attribute)
+        start = WERNER_START_TIME if attribute == "werner" else 0
+        ax.plot(
+            np.arange(start, len(values)),
+            values[start:],
             color=color,
-            linestyle=QBKAT_PMF_LINESTYLE,
-        )
-        werner_ax.plot(
-            np.arange(1, len(series.werner)),
-            series.werner[1:],
-            color=color,
-            linestyle=QBKAT_WERNER_LINESTYLE,
+            linestyle=QBKAT_LINESTYLE,
+            label=VALIDATION_LABELS[(protocol, "qbkat")],
         )
 
-    # References are drawn last so they remain visible over the nearly
-    # identical QBKAT curves.
+    # Draw references last so their dashed curves remain visible over QBKAT's
+    # nearly identical solid curves.
     for protocol in protocols:
         reference = references.get(protocol)
         if reference is None:
             continue
-        color = PROTOCOL_COLORS[protocol]
-        if reference.pmf is not None:
-            pmf_ax.plot(
-                np.arange(len(reference.pmf)),
-                reference.pmf,
-                color=color,
-                linestyle=REFERENCE_PMF_LINESTYLE,
-                linewidth=REFERENCE_LINEWIDTH,
-            )
-        if reference.werner is not None:
-            werner_ax.plot(
-                np.arange(1, len(reference.werner)),
-                reference.werner[1:],
-                color=color,
-                linestyle=REFERENCE_WERNER_LINESTYLE,
-                linewidth=REFERENCE_LINEWIDTH,
-            )
-    return protocols
-
-
-def add_combined_legends(ax: Any, protocols: tuple[str, ...]) -> None:
-    series_handles = (
-        Line2D([], [], color="black", linestyle=QBKAT_PMF_LINESTYLE, label="QBKAT PMF"),
-        Line2D(
-            [],
-            [],
-            color="black",
-            linestyle=REFERENCE_PMF_LINESTYLE,
+        color = REFERENCE_COLORS[protocol]
+        values = getattr(reference, attribute)
+        if values is None:
+            continue
+        start = WERNER_START_TIME if attribute == "werner" else 0
+        ax.plot(
+            np.arange(start, len(values)),
+            values[start:],
+            color=color,
+            linestyle=REFERENCE_LINESTYLE,
             linewidth=REFERENCE_LINEWIDTH,
-            label="Reference PMF",
-        ),
-        Line2D([], [], color="black", linestyle=QBKAT_WERNER_LINESTYLE, label="QBKAT Werner"),
-        Line2D(
-            [],
-            [],
-            color="black",
-            linestyle=REFERENCE_WERNER_LINESTYLE,
-            linewidth=REFERENCE_LINEWIDTH,
-            label="Reference Werner",
-        ),
-    )
-    scheme_handles = tuple(
-        Line2D(
-            [],
-            [],
-            color=PROTOCOL_COLORS[protocol],
-            linestyle="-",
-            label=PROTOCOL_LABELS.get(protocol, protocol),
+            label=VALIDATION_LABELS[(protocol, "reference")],
         )
-        for protocol in protocols
-    )
-
-    scheme_legend = ax.legend(
-        handles=scheme_handles,
-        title="Color",
-        loc="lower left",
-        bbox_to_anchor=(0.0, 0.98),
-        ncol=1,
-        columnspacing=1.0,
-        labelspacing=0.35,
-        borderaxespad=0.0,
-    )
-    ax.add_artist(scheme_legend)
-    ax.legend(
-        handles=series_handles,
-        title="Line style",
-        loc="lower right",
-        bbox_to_anchor=(1.0, 0.98),
-        ncol=1,
-        columnspacing=1.0,
-        labelspacing=0.35,
-        borderaxespad=0.0,
-    )
 
 
 def plot_pmf_curves(
@@ -679,30 +687,7 @@ def plot_pmf_curves(
     series_by_protocol: dict[str, ProtocolSeries],
     references: dict[str, ReferenceSeries],
 ) -> None:
-    protocols = plotted_protocols(series_by_protocol)
-    for protocol in protocols:
-        color = PROTOCOL_COLORS.get(protocol)
-        series = series_by_protocol[protocol]
-
-        ax.plot(
-            np.arange(len(series.pmf)),
-            series.pmf,
-            label=PROTOCOL_LABELS.get(protocol, protocol),
-            color=color,
-        )
-
-    # Draw references last and in a contrasting color. Their values nearly
-    # coincide with QBKAT, so a same-color overlay would hide the dash pattern.
-    for protocol in protocols:
-        reference = references.get(protocol)
-        if reference is not None and reference.pmf is not None:
-            ax.plot(
-                np.arange(len(reference.pmf)),
-                reference.pmf,
-                color=REFERENCE_COLORS[protocol],
-                linestyle="--",
-                label=REFERENCE_LABELS.get(protocol, r"reference"),
-            )
+    plot_validation_curves(ax, "pmf", series_by_protocol, references)
 
 
 
@@ -711,29 +696,7 @@ def plot_werner_curves(
     series_by_protocol: dict[str, ProtocolSeries],
     references: dict[str, ReferenceSeries],
 ) -> None:
-    protocols = plotted_protocols(series_by_protocol)
-    for protocol in protocols:
-        color = PROTOCOL_COLORS.get(protocol)
-        series = series_by_protocol[protocol]
-        ax.plot(
-            np.arange(1, len(series.werner)),
-            series.werner[1:],
-            label=PROTOCOL_LABELS.get(protocol, protocol),
-            color=color,
-        )
-
-    # Draw references last and in a contrasting color. Their values nearly
-    # coincide with QBKAT, so a same-color overlay would hide the dash pattern.
-    for protocol in protocols:
-        reference = references.get(protocol)
-        if reference is not None and reference.werner is not None:
-            ax.plot(
-                np.arange(1, len(reference.werner)),
-                reference.werner[1:],
-                color=REFERENCE_COLORS[protocol],
-                linestyle="--",
-                label=REFERENCE_LABELS.get(protocol, r"reference"),
-            )
+    plot_validation_curves(ax, "werner", series_by_protocol, references)
 
 
 def plot_pmf_validation(
@@ -784,7 +747,7 @@ def plot_werner_validation(
 
 
 def run_validation(args: Any) -> None:
-    protocols = tuple(args.protocol or PROTOCOLS)
+    protocols = tuple(args.protocol or DEFAULT_PROTOCOLS)
     output_dir = Path(args.output_dir)
     figure_dir = Path(args.figure_dir)
 
@@ -799,34 +762,46 @@ def run_validation(args: Any) -> None:
     }
     swap_asap_oracle = goodenough_lambda_4(args.p_gen, args.t_coh)
 
-    li_references = load_reference_pickle(
-        Path(args.li_reference),
-        ("doubling",),
-        quiet_missing=True,
-    ) or load_reference_pair_pickles(
-        Path(args.li_pmf_reference),
-        Path(args.li_werner_reference),
-        ("doubling",),
-    )
-    lacorte_references = load_reference_pickle(
-        Path(args.lacorte_reference),
-        ("left-to-right", "right-to-left"),
-        quiet_missing=True,
-    )
-    lacorte_references.update(
-        load_reference_pair_pickles(
-            Path(args.lacorte_left_pmf_reference),
-            Path(args.lacorte_left_werner_reference),
-            ("left-to-right",),
+    li_references: dict[str, ReferenceSeries] = {}
+    if "doubling" in protocols:
+        li_references = load_reference_pickle(
+            Path(args.li_reference),
+            ("doubling",),
+            quiet_missing=True,
+        ) or load_reference_pair_pickles(
+            Path(args.li_pmf_reference),
+            Path(args.li_werner_reference),
+            ("doubling",),
         )
+
+    sequential_protocols = tuple(
+        protocol
+        for protocol in ("left-to-right", "right-to-left")
+        if protocol in protocols
     )
-    lacorte_references.update(
-        load_reference_pair_pickles(
-            Path(args.lacorte_right_pmf_reference),
-            Path(args.lacorte_right_werner_reference),
-            ("right-to-left",),
+    lacorte_references: dict[str, ReferenceSeries] = {}
+    if sequential_protocols:
+        lacorte_references = load_reference_pickle(
+            Path(args.lacorte_reference),
+            sequential_protocols,
+            quiet_missing=True,
         )
-    )
+    if "left-to-right" in protocols:
+        lacorte_references.update(
+            load_reference_pair_pickles(
+                Path(args.lacorte_left_pmf_reference),
+                Path(args.lacorte_left_werner_reference),
+                ("left-to-right",),
+            )
+        )
+    if "right-to-left" in protocols:
+        lacorte_references.update(
+            load_reference_pair_pickles(
+                Path(args.lacorte_right_pmf_reference),
+                Path(args.lacorte_right_werner_reference),
+                ("right-to-left",),
+            )
+        )
     references = {**li_references, **lacorte_references}
 
     rows: list[dict[str, Any]] = []
@@ -856,6 +831,7 @@ def run_validation(args: Any) -> None:
                     series,
                     references[protocol],
                     atol=args.reference_atol,
+                    werner_pmf_threshold=args.werner_pmf_threshold,
                 )
             )
         rows.append(base_row)
@@ -872,12 +848,15 @@ def run_validation(args: Any) -> None:
         args.plot_profile,
         series_by_protocol,
         references,
-        swap_asap_oracle,
         skip_werner_legend=args.skip_werner_legend,
     )
 
     print("\n5-node swap-scheme validation")
-    print(f"p_gen={args.p_gen:.12g}, t_coh={args.t_coh}, truncation={args.truncation}")
+    print(
+        f"p_gen={args.p_gen:.12g}, p_swap={args.p_swap:.12g}, w0={args.w0:.12g}, "
+        f"t_coh={args.t_coh}, reference_t_coh={args.reference_t_coh}, "
+        f"truncation={args.truncation}"
+    )
     print(f"Goodenough E[Lambda_4] = {swap_asap_oracle:.15g}")
     for row in rows:
         print(

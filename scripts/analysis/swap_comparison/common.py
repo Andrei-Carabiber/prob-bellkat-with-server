@@ -14,10 +14,14 @@ from scripts.plot.config import (
     PLOT_SETTINGS,
     SWAP_COMPARISON_COMBINED_HEIGHT_INCHES,
     SWAP_COMPARISON_COMBINED_LINE_WIDTH_INCHES,
+    SWAP_COMPARISON_BINNED_LINE_WIDTH,
+    SWAP_COMPARISON_DETAIL_INSET_BOUNDS,
     SWAP_COMPARISON_HEIGHT_INCHES,
+    SWAP_COMPARISON_JOINT_LEGEND_Y,
+    SWAP_COMPARISON_JOINT_TOP,
     SWAP_COMPARISON_LINE_WIDTH_INCHES,
     TIME_AXIS_LABEL,
-    JOINT_PLOTS_HSPACE,
+    JOINT_PLOTS_WSPACE,
     get_plot_profile,
     output_path,
     save_figure,
@@ -49,6 +53,22 @@ PMF_PLOT_KIND = "pmf"
 CDF_PLOT_KIND = "cdf"
 BOTH_PLOT_KIND = "both"
 PLOT_KINDS = (PMF_PLOT_KIND, CDF_PLOT_KIND, BOTH_PLOT_KIND)
+
+
+def detail_range(value):
+    try:
+        start_text, end_text = (part.strip() for part in value.split(","))
+        start = int(start_text)
+        end = int(end_text)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(
+            "detail range must have the form T1,T2 with integer timesteps"
+        ) from None
+    if start < 0 or end <= start:
+        raise argparse.ArgumentTypeError(
+            "detail range must satisfy 0 <= T1 < T2"
+        )
+    return start, end
 
 
 @dataclass(frozen=True)
@@ -152,7 +172,16 @@ def parse_args(config):
         dest="joint_plots",
         help=(
             "Also plot PMF and Werner, or PMF and fidelity when --plot-fidelity "
-            "is enabled, as two vertically stacked panels sharing the x-axis."
+            "is enabled, as two side-by-side panels sharing the x-axis."
+        ),
+    )
+    parser.add_argument(
+        "--show-detail",
+        type=detail_range,
+        metavar="T1,T2",
+        help=(
+            "Add an inset to the joint PMF panel showing timesteps T1 through T2. "
+            "Requires --joint-plots."
         ),
     )
     parser.add_argument(
@@ -213,6 +242,8 @@ def parse_args(config):
     args = parser.parse_args()
     if args.binning < 1:
         parser.error("--binning must be a positive integer.")
+    if args.show_detail is not None and not args.joint_plots:
+        parser.error("--show-detail requires --joint-plots.")
     if args.smoke_test:
         if args.plots_only:
             parser.error("--smoke-test cannot be combined with --plots-only.")
@@ -746,30 +777,131 @@ def plot_time_series(
     only_binned,
     only_non_binned,
 ):
+    variants = time_series_variants(
+        t,
+        values,
+        bin_size=bin_size,
+        only_binned=only_binned,
+        only_non_binned=only_non_binned,
+    )
+    for index, (
+        variant_t,
+        variant_values,
+        alpha,
+        linestyle,
+        zorder,
+    ) in enumerate(variants):
+        ax.plot(
+            variant_t,
+            variant_values,
+            color=color,
+            alpha=alpha,
+            linestyle=linestyle,
+            linewidth=(
+                SWAP_COMPARISON_BINNED_LINE_WIDTH
+                if linestyle == "--"
+                else None
+            ),
+            label=label if index == len(variants) - 1 else "_nolegend_",
+            zorder=zorder,
+        )
+
+
+def time_series_variants(
+    t,
+    values,
+    *,
+    bin_size,
+    only_binned,
+    only_non_binned,
+):
     plot_non_binned = not only_binned
     plot_binned = not only_non_binned
-
+    variants = []
     if plot_non_binned:
-        ax.plot(
-            t,
-            values,
-            color=color,
-            alpha=LINE_ALPHA,
-            linestyle="-",
-            label=label if not plot_binned else "_nolegend_",
-            zorder=2,
-        )
+        variants.append((t, values, LINE_ALPHA, "-", 2))
     if plot_binned:
         binned_t, binned_values = bin_time_series(t, values, bin_size)
-        ax.plot(
-            binned_t,
-            binned_values,
-            color=color,
-            alpha=1.0,
-            linestyle="--",
-            label=label,
-            zorder=3,
+        variants.append((binned_t, binned_values, 1.0, "--", 3))
+    return variants
+
+
+def add_pmf_detail_inset(
+    pmf_ax,
+    plot_data,
+    detail,
+    *,
+    bin_size,
+    only_binned,
+    only_non_binned,
+):
+    from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator
+
+    start, end = detail
+    inset_ax = pmf_ax.inset_axes(SWAP_COMPARISON_DETAIL_INSET_BOUNDS)
+    inset_values = []
+
+    for t, values, color in plot_data:
+        for variant_t, variant_values, alpha, linestyle, zorder in time_series_variants(
+            t,
+            values,
+            bin_size=bin_size,
+            only_binned=only_binned,
+            only_non_binned=only_non_binned,
+        ):
+            variant_t = np.asarray(variant_t, dtype=float)
+            variant_values = np.asarray(variant_values, dtype=float)
+            mask = (variant_t >= start) & (variant_t <= end)
+            if not np.any(mask):
+                continue
+            detail_t = variant_t[mask]
+            detail_values = variant_values[mask]
+            inset_ax.plot(
+                detail_t,
+                detail_values,
+                color=color,
+                alpha=alpha,
+                linestyle=linestyle,
+                linewidth=(
+                    SWAP_COMPARISON_BINNED_LINE_WIDTH
+                    if linestyle == "--"
+                    else None
+                ),
+                zorder=zorder,
+            )
+            inset_values.extend(detail_values.tolist())
+
+    if not inset_values:
+        raise SystemExit(
+            f"--show-detail range {start},{end} does not overlap the plotted PMF data."
         )
+
+    value_min = min(inset_values)
+    value_max = max(inset_values)
+    value_span = value_max - value_min
+    padding = (
+        0.08 * value_span
+        if value_span > 0.0
+        else max(abs(value_max) * 0.08, 1e-15)
+    )
+    inset_ax.set_xlim(start, end)
+    inset_ax.set_ylim(max(0.0, value_min - padding), value_max + padding)
+    style_axes(inset_ax)
+
+    inset_ax.xaxis.set_major_locator(FixedLocator((start, end)))
+    inset_ax.xaxis.set_major_formatter(
+        FuncFormatter(lambda value, _position: f"{value:g}")
+    )
+    inset_ax.yaxis.set_major_locator(MaxNLocator(3))
+    inset_ax.yaxis.set_major_formatter(
+        FuncFormatter(lambda value, _position: f"{value:.2g}")
+    )
+    inset_ax.tick_params(axis="both", labelsize=5.5, length=2.0, pad=1.0)
+    inset_tick_labels = inset_ax.get_xticklabels()
+    inset_tick_labels[0].set_ha("left")
+    inset_tick_labels[-1].set_ha("right")
+    inset_ax.set_facecolor("white")
+    inset_ax.patch.set_alpha(0.96)
 
 
 def plot_combined_reachability(
@@ -912,30 +1044,43 @@ def plot_joint_pmf_quality(
     bin_size=10,
     only_binned=False,
     only_non_binned=False,
+    show_detail=None,
 ):
     plot_profile = get_plot_profile(config.plot_profile)
     skr_by_protocol = skr_by_protocol or {}
     fig, (pmf_ax, quality_ax) = plt.subplots(
-        2,
         1,
+        2,
         sharex=True,
         figsize=(
             SWAP_COMPARISON_COMBINED_LINE_WIDTH_INCHES,
             SWAP_COMPARISON_COMBINED_HEIGHT_INCHES,
         ),
-        gridspec_kw={"height_ratios": (1.0, 1.0), "hspace": JOINT_PLOTS_HSPACE},
+        gridspec_kw={"width_ratios": (1.0, 1.0), "wspace": JOINT_PLOTS_WSPACE},
     )
 
+    pmf_plot_data = []
     for index, (protocol, series) in enumerate(reachability_protocol_series):
         _, pmf = derive_pmf_series(series)
         t = list(range(len(pmf)))
         color = config.colors[index % len(config.colors)]
+        pmf_plot_data.append((t, pmf, color))
         plot_time_series(
             pmf_ax,
             t,
             pmf,
             color=color,
             label=protocol_legend_label(protocol, skr_by_protocol, show_skr),
+            bin_size=bin_size,
+            only_binned=only_binned,
+            only_non_binned=only_non_binned,
+        )
+
+    if show_detail is not None:
+        add_pmf_detail_inset(
+            pmf_ax,
+            pmf_plot_data,
+            show_detail,
             bin_size=bin_size,
             only_binned=only_binned,
             only_non_binned=only_non_binned,
@@ -975,6 +1120,7 @@ def plot_joint_pmf_quality(
             only_non_binned=only_non_binned,
         )
 
+    pmf_ax.set_xlabel(TIME_AXIS_LABEL)
     pmf_ax.set_ylabel("Probability")
     if quality == "fidelity":
         quality_ax.set_ylabel(r"Fidelity")
@@ -984,13 +1130,37 @@ def plot_joint_pmf_quality(
         # quality_ax.set_ylim(0.0, 1.0)
         suffix = "pmfs_ws"
     quality_ax.set_xlabel(TIME_AXIS_LABEL)
+    quality_ax.yaxis.set_label_position("right")
+    quality_ax.yaxis.tick_right()
+    quality_ax.tick_params(
+        axis="y",
+        left=False,
+        labelleft=False,
+        right=True,
+        labelright=True,
+    )
 
     style_axes(pmf_ax)
     style_axes(quality_ax)
-    if pmf_ax.get_legend_handles_labels()[0]:
-        pmf_ax.legend(frameon=False, loc="best", ncol=1 if show_skr else 2)
 
-    fig.align_ylabels((pmf_ax, quality_ax))
+    handles, labels = pmf_ax.get_legend_handles_labels()
+    if handles:
+        fig.legend(
+            handles,
+            labels,
+            frameon=False,
+            loc="upper center",
+            bbox_to_anchor=(0.5, SWAP_COMPARISON_JOINT_LEGEND_Y),
+            ncol=2,
+        )
+
+    fig.subplots_adjust(
+        left=0.08,
+        right=0.88,
+        bottom=0.21,
+        top=SWAP_COMPARISON_JOINT_TOP,
+        wspace=JOINT_PLOTS_WSPACE,
+    )
     figure_path = output_path(figure_dir, config.figure_prefix, suffix, plot_profile)
     save_figure(fig, figure_path, tight_layout=False, bbox_inches=None)
     plt.close(fig)
@@ -1237,6 +1407,7 @@ def run_comparison(config):
             bin_size=args.binning,
             only_binned=args.only_binned_plots,
             only_non_binned=args.only_non_binned,
+            show_detail=args.show_detail,
         )
 
     print("\nSecret key rates:")
