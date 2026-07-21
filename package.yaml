@@ -109,6 +109,13 @@ library:
     - BellKAT.QuantumPrelude
 
 executables:
+  playground:
+    source-dirs: playground-example
+    main: Playground.hs
+    dependencies:
+      - bellkat
+      - aeson
+      - bytestring
   p1:
     dependencies: 
       - bellkat
