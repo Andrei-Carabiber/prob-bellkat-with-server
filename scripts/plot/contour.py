@@ -1,15 +1,33 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from scripts.plot.config import style_axes
 
 
 RATIO_CONTOUR_LEVELS = 101
+RATIO_AXIS_LABEL_SIZE = 6
+RATIO_TICK_LABEL_SIZE = 6
+RATIO_COLORBAR_LABEL_SIZE = 6
+RATIO_COLORBAR_TICK_LABEL_SIZE = 5.5
+RATIO_COLORBAR_MAX_INTERVALS = 4
 
 
 def tick_label(value: float | int) -> str:
     return f"{float(value):.12g}"
+
+
+def thinned_ticks(values, labels, maximum: int):
+    """Select readable ticks while retaining both endpoints."""
+    if len(values) <= maximum:
+        return values, labels
+    step = math.ceil((len(values) - 1) / (maximum - 1))
+    indices = list(range(0, len(values), step))
+    if indices[-1] != len(values) - 1:
+        indices.append(len(values) - 1)
+    return [values[index] for index in indices], [labels[index] for index in indices]
 
 
 def draw_ratio_contour(
@@ -27,10 +45,14 @@ def draw_ratio_contour(
     log_y: bool = False,
     show_xlabel: bool = True,
     levels: int = RATIO_CONTOUR_LEVELS,
+    x_ticks=None,
+    y_ticks=None,
+    x_ticklabels=None,
+    y_ticklabels=None,
 ):
     """Draw a consistently styled ratio contour centered on equality when possible."""
     from matplotlib.colors import TwoSlopeNorm
-    from matplotlib.ticker import NullLocator
+    from matplotlib.ticker import MaxNLocator, NullLocator
 
     x = np.asarray(x_values, dtype=float)
     y = np.asarray(y_values, dtype=float)
@@ -64,14 +86,24 @@ def draw_ratio_contour(
 
     ax.set_xlabel(xlabel if show_xlabel else "")
     ax.set_ylabel(ylabel)
-    ax.set_xticks(x)
-    ax.set_yticks(y)
+    ax.set_xticks(x if x_ticks is None else x_ticks)
+    ax.set_yticks(y if y_ticks is None else y_ticks)
+    style_axes(ax)
+    ax.xaxis.label.set_size(RATIO_AXIS_LABEL_SIZE)
+    ax.yaxis.label.set_size(RATIO_AXIS_LABEL_SIZE)
+    ax.tick_params(axis="both", labelsize=RATIO_TICK_LABEL_SIZE)
     ax.set_xticklabels(
-        [tick_label(value) for value in x],
+        x_ticklabels if x_ticklabels is not None else [tick_label(value) for value in x],
         rotation=45,
         ha="right",
         rotation_mode="anchor",
     )
-    ax.set_yticklabels([tick_label(value) for value in y])
-    style_axes(ax)
-    return fig.colorbar(heatmap, ax=ax, label=colorbar_label)
+    ax.set_yticklabels(
+        y_ticklabels if y_ticklabels is not None else [tick_label(value) for value in y]
+    )
+    colorbar = fig.colorbar(heatmap, ax=ax, pad=0.02)
+    colorbar.locator = MaxNLocator(nbins=RATIO_COLORBAR_MAX_INTERVALS)
+    colorbar.update_ticks()
+    colorbar.set_label(colorbar_label, size=RATIO_COLORBAR_LABEL_SIZE)
+    colorbar.ax.tick_params(labelsize=RATIO_COLORBAR_TICK_LABEL_SIZE)
+    return colorbar

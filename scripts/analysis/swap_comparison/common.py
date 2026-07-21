@@ -59,6 +59,25 @@ CDF_PLOT_KIND = "cdf"
 BOTH_PLOT_KIND = "both"
 PLOT_KINDS = (PMF_PLOT_KIND, CDF_PLOT_KIND, BOTH_PLOT_KIND)
 
+# Physical generation baseline for a 50 km link in Common.NetworkConfig.
+PHYSICAL_P_GE_50_KM = 9.187e-4
+PHYSICAL_W0_50_KM = 0.9524
+
+
+def generation_scaling_factor(reference_p_ge: float) -> float:
+    """Express a 50 km reference probability relative to its physical baseline."""
+    return reference_p_ge / PHYSICAL_P_GE_50_KM
+
+
+def edge_generation_scaling_factor(edge_skew: float) -> float:
+    """Convert the internal divisor for the slow edge to a multiplicative factor."""
+    return 1.0 / edge_skew
+
+
+def werner_scaling_factor(reference_w0: float) -> float:
+    """Express a 50 km reference Werner parameter relative to its baseline."""
+    return reference_w0 / PHYSICAL_W0_50_KM
+
 
 def detail_range(value):
     try:

@@ -23,9 +23,11 @@ from scripts.analysis.swap_comparison.common import (
     compute_secret_key_rate_from_split,
     executable_command,
     format_duration,
+    generation_scaling_factor,
     load_extremal_payload,
     load_extremal_series,
     run_command,
+    werner_scaling_factor,
 )
 from scripts.plot.config import (
     DEFAULT_PROFILE,
@@ -37,7 +39,7 @@ from scripts.plot.config import (
     output_path,
     save_figure,
 )
-from scripts.plot.contour import draw_ratio_contour
+from scripts.plot.contour import draw_ratio_contour, thinned_ticks
 
 
 PROTOCOLS = ("swap", "dist-swap")
@@ -393,8 +395,15 @@ def write_csv(path: Path, results: dict[DistillationPoint, PointResult]) -> None
 
 
 def plot_ratio(plt, figure_dir: Path, results: dict[DistillationPoint, PointResult], args) -> Path:
-    x_values = p_ge_values(args)
-    y_values = w0_values(args)
+    reference_p_ge_values = p_ge_values(args)
+    x_values = [generation_scaling_factor(value) for value in reference_p_ge_values]
+    all_x_ticklabels = [
+        f"{value:.1f}" if value < 100 else f"{value:.0f}"
+        for value in x_values
+    ]
+    x_ticks, x_ticklabels = thinned_ticks(x_values, all_x_ticklabels, 5)
+    reference_w0_values = w0_values(args)
+    y_values = [werner_scaling_factor(value) for value in reference_w0_values]
     ratio = [
         [
             swap_over_dist(
@@ -407,9 +416,9 @@ def plot_ratio(plt, figure_dir: Path, results: dict[DistillationPoint, PointResu
                     )
                 ]
             )
-            for x_value in x_values
+            for x_value in reference_p_ge_values
         ]
-        for y_value in y_values
+        for y_value in reference_w0_values
     ]
 
     fig, ax = plt.subplots(
@@ -422,13 +431,14 @@ def plot_ratio(plt, figure_dir: Path, results: dict[DistillationPoint, PointResu
         y_values,
         ratio,
         cmap="BrBG",
-        colorbar_label=(
-            r"$\mathrm{SKR}_{\mathrm{swap}}/"
-            r"\mathrm{SKR}_{\mathrm{dist\!-\!swap}}$"
-        ),
-        xlabel=r"Generation success probability $p_{\mathrm{ge}}$",
-        ylabel=r"Initial Werner parameter $w_0$",
+        colorbar_label=r"$\mathrm{SKR\ ratio}$",
+        xlabel=r"$p_{\mathrm{ge}}$ scaling",
+        ylabel=r"$w_0$ scaling",
         log_x=True,
+        x_ticks=x_ticks,
+        y_ticks=(y_values[0], 1.0, y_values[-1]),
+        y_ticklabels=(f"{y_values[0]:.2f}", r"$1$", f"{y_values[-1]:.2f}"),
+        x_ticklabels=x_ticklabels,
     )
 
     plot_profile = get_plot_profile(args.plot_profile)
@@ -444,6 +454,14 @@ def relative_link(from_path: Path, to_path: Path) -> str:
 
 def write_report(markdown_path: Path, args, csv_path: Path, figure_path: Path | None) -> None:
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    scaling_values = ",".join(
+        f"{generation_scaling_factor(value):.4g}"
+        for value in p_ge_values(args)
+    )
+    w0_scaling_values = ",".join(
+        f"{werner_scaling_factor(value):.4g}"
+        for value in w0_values(args)
+    )
     lines = [
         "# Distillation Comparison",
         "",
@@ -451,8 +469,8 @@ def write_report(markdown_path: Path, args, csv_path: Path, figure_path: Path | 
         "",
         "## Configuration",
         "",
-        f"- `p_ge_50km={args.p_ge_values_a}`",
-        f"- `w0_50km={args.w0_values_a}`",
+        f"- `generation_scaling_eta={scaling_values}`",
+        f"- `w0_scaling_eta_w={w0_scaling_values}`",
         f"- `p_swap={value_text(args.p_swap)}`",
         f"- `t_coh={value_text(args.t_coh)}`",
         f"- `truncation={args.truncation}`",

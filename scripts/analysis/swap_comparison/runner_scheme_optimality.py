@@ -19,11 +19,14 @@ from scripts.analysis.swap_comparison.common import (
     STATIC_EVENT,
     build_command,
     compute_secret_key_rate_from_split,
+    edge_generation_scaling_factor,
     executable_command,
     format_duration,
+    generation_scaling_factor,
     load_coverage_budget,
     run_command,
     validate_extremal_json,
+    werner_scaling_factor,
 )
 from scripts.plot.config import (
     DEFAULT_PROFILE,
@@ -38,13 +41,17 @@ from scripts.plot.config import (
     output_path,
     save_figure,
 )
-from scripts.plot.contour import draw_ratio_contour
+from scripts.plot.contour import draw_ratio_contour, thinned_ticks
 
 
 BASELINE_PROTOCOL = "swap-asap"
 DOUBLING_PROTOCOL = "doubling"
 SEQUENTIAL_PROTOCOLS = ("left-to-right", "right-to-left")
 PROTOCOLS = (BASELINE_PROTOCOL, DOUBLING_PROTOCOL, *SEQUENTIAL_PROTOCOLS)
+PROTOCOL_PLOT_LABELS = {
+    "left-to-right": "L-to-R",
+    "right-to-left": "R-to-L",
+}
 FILE_PREFIX = "swap_scheme_optimality"
 FIGURE_PREFIX = "swap_scheme_optimality"
 DEFAULT_OUTPUT_DIR = Path("output/swap-scheme-optimality")
@@ -61,10 +68,10 @@ EVALUATION_A_W0 = 0.955
 EVALUATION_B_W0 = 0.955
 LOG_AXES = {"p-gen", "edge-skew"}
 AXIS_LABELS = {
-    "p-gen": r"Generation success probability $p_{\mathrm{ge}}$",
-    "w0": r"Initial Werner parameter $w_0$",
-    "p-swap": r"Swap success probability $p_{\mathrm{sw}}$",
-    "edge-skew": r"Generation success penalty $\eta$",
+    "p-gen": r"$p_{\mathrm{ge}}$ scaling",
+    "w0": r"$w_0$ scaling",
+    "p-swap": r"Swap probability $p_{\mathrm{sw}}$",
+    "edge-skew": r"$p_{\mathrm{ge}}^{ZE}$ scaling",
 }
 
 
@@ -123,7 +130,7 @@ DEFAULT_JOBS = (
         cmap="RdBu",
         numerator_protocols=(DOUBLING_PROTOCOL,),
         numerator_label="doubling",
-        caption=r"$\mathrm{SKR}_{\mathrm{doubling}}/\mathrm{SKR}_{\mathrm{swap\!-\!asap}}$",
+        caption=r"$\mathrm{SKR\ ratio}$",
     ),
     RatioJob(
         experiment=SEQUENTIAL_EXPERIMENT,
@@ -138,7 +145,7 @@ DEFAULT_JOBS = (
         cmap="PiYG",
         numerator_protocols=SEQUENTIAL_PROTOCOLS,
         numerator_label="best sequential",
-        caption=r"$\mathrm{SKR}_{\mathrm{sequential}}/\mathrm{SKR}_{\mathrm{swap\!-\!asap}}$",
+        caption=r"$\mathrm{SKR\ ratio}$",
     ),
 )
 
@@ -672,20 +679,124 @@ def axis_label(axis: str) -> str:
     return AXIS_LABELS[axis]
 
 
+def plotted_axis_value(axis: str, value: float | int | None) -> float:
+    numeric_value = require_axis_number(axis, value)
+    if axis == "p-gen":
+        return generation_scaling_factor(numeric_value)
+    elif axis == "edge-skew":
+        return edge_generation_scaling_factor(numeric_value)
+    return numeric_value
+
+
+def plotted_axis_tick_label(axis: str, value: float | int | None) -> str:
+    numeric_value = require_axis_number(axis, value)
+    if axis == "p-gen":
+        scaling = generation_scaling_factor(numeric_value)
+        return f"{scaling:.1f}" if scaling < 100 else f"{scaling:.0f}"
+    if axis == "edge-skew":
+        denominator = round(numeric_value)
+        return r"$1$" if denominator == 1 else rf"$1/{denominator}$"
+    return f"{numeric_value:g}"
+
+
+def plotted_values_text(axis: str, raw_values: str, flag: str) -> str:
+    return ",".join(
+        f"{plotted_axis_value(axis, value):g}"
+        for value in parse_float_values(raw_values, flag)
+    )
+
+
 def require_axis_number(axis: str, value: float | int | None) -> float:
     if value is None:
         raise AssertionError(f"Axis {axis} unexpectedly used an example default value.")
     return float(value)
 
 
+def annotate_best_protocol(
+    ax,
+    x_values: list[float],
+    y_values: list[float],
+    protocol_grid: list[list[str]],
+    *,
+    log_x: bool,
+    log_y: bool,
+) -> None:
+    """Mark which policy supplies a pointwise maximum in a ratio plot."""
+    protocols = tuple(
+        protocol
+        for protocol in SEQUENTIAL_PROTOCOLS
+        if any(protocol in row for row in protocol_grid)
+    )
+    if len(protocols) == 2:
+        winner_codes = [
+            [protocols.index(protocol) for protocol in row]
+            for row in protocol_grid
+        ]
+        ax.contour(
+            x_values,
+            y_values,
+            winner_codes,
+            levels=[0.5],
+            colors="#303030",
+            linewidths=0.45,
+            linestyles="--",
+        )
+
+    for protocol in protocols:
+        coordinates = [
+            (x_values[x_index], y_values[y_index])
+            for y_index, row in enumerate(protocol_grid)
+            for x_index, winner in enumerate(row)
+            if winner == protocol
+        ]
+        transformed_x = [math.log(value) if log_x else value for value, _ in coordinates]
+        transformed_y = [math.log(value) if log_y else value for _, value in coordinates]
+        label_x = sum(transformed_x) / len(transformed_x)
+        label_y = sum(transformed_y) / len(transformed_y)
+        if log_x:
+            label_x = math.exp(label_x)
+        if log_y:
+            label_y = math.exp(label_y)
+        ax.text(
+            label_x,
+            label_y,
+            PROTOCOL_PLOT_LABELS[protocol],
+            ha="center",
+            va="center",
+            fontsize=5.5,
+            fontweight="bold",
+            color="#202020",
+            bbox={"facecolor": "white", "alpha": 0.72, "edgecolor": "none", "pad": 0.7},
+            zorder=4,
+        )
+
+
 def draw_ratio(fig, ax, job: RatioJob, results: dict[SchemePoint, PointResult], args, *, show_xlabel: bool) -> None:
     x_values, y_values, grid = ratio_grid(job, results, args)
+    plotted_x = [plotted_axis_value(job.x_axis, value) for value in x_values]
+    plotted_y = [plotted_axis_value(job.y_axis, value) for value in y_values]
+    x_ticklabels = [plotted_axis_tick_label(job.x_axis, value) for value in x_values]
+    y_ticklabels = [plotted_axis_tick_label(job.y_axis, value) for value in y_values]
+    plotted_grid = [[entry.ratio for entry in row] for row in grid]
+    protocol_grid = [[entry.numerator_protocol for entry in row] for row in grid]
+    if len(plotted_x) > 1 and plotted_x[0] > plotted_x[-1]:
+        plotted_x.reverse()
+        x_ticklabels.reverse()
+        plotted_grid = [list(reversed(row)) for row in plotted_grid]
+        protocol_grid = [list(reversed(row)) for row in protocol_grid]
+    if len(plotted_y) > 1 and plotted_y[0] > plotted_y[-1]:
+        plotted_y.reverse()
+        y_ticklabels.reverse()
+        plotted_grid.reverse()
+        protocol_grid.reverse()
+    x_ticks, x_ticklabels = thinned_ticks(plotted_x, x_ticklabels, 5)
+    y_ticks, y_ticklabels = thinned_ticks(plotted_y, y_ticklabels, 4)
     draw_ratio_contour(
         fig,
         ax,
-        [require_axis_number(job.x_axis, value) for value in x_values],
-        [require_axis_number(job.y_axis, value) for value in y_values],
-        [[entry.ratio for entry in row] for row in grid],
+        plotted_x,
+        plotted_y,
+        plotted_grid,
         cmap=job.cmap,
         colorbar_label=job.caption,
         xlabel=axis_label(job.x_axis),
@@ -693,7 +804,20 @@ def draw_ratio(fig, ax, job: RatioJob, results: dict[SchemePoint, PointResult], 
         log_x=job.x_axis in LOG_AXES,
         log_y=job.y_axis in LOG_AXES,
         show_xlabel=show_xlabel,
+        x_ticks=x_ticks,
+        y_ticks=y_ticks,
+        x_ticklabels=x_ticklabels,
+        y_ticklabels=y_ticklabels,
     )
+    if len(job.numerator_protocols) > 1:
+        annotate_best_protocol(
+            ax,
+            plotted_x,
+            plotted_y,
+            protocol_grid,
+            log_x=job.x_axis in LOG_AXES,
+            log_y=job.y_axis in LOG_AXES,
+        )
 
 
 def plot_ratio(plt, figure_dir: Path, job: RatioJob, results: dict[SchemePoint, PointResult], args) -> Path:
@@ -822,16 +946,19 @@ def write_report(
     configuration_lines = []
     if DEFAULT_JOBS[0] in jobs:
         configuration_lines.append(
-            f"- evaluation (a), doubling vs. swap-asap: `p_ge_50km={args.p_gen_values_a}`, "
-            f"`p_swap={args.p_swap_values_a}`, `w0_50km={EVALUATION_A_W0:g}`, "
-            f"`edge_skew={EVALUATION_A_EDGE_SKEW:g}`"
+            "- evaluation (a), doubling vs. swap-asap: "
+            f"`generation_scaling_eta={plotted_values_text('p-gen', args.p_gen_values_a, '--p-ge-values-a')}`, "
+            f"`p_swap={args.p_swap_values_a}`, `w0_scaling_eta_w={werner_scaling_factor(EVALUATION_A_W0):.4g}`, "
+            f"`right_edge_scaling_eta_ZE={edge_generation_scaling_factor(EVALUATION_A_EDGE_SKEW):g}`"
         )
     else:
         configuration_lines.append("- evaluation (a), doubling vs. swap-asap: skipped")
     if DEFAULT_JOBS[1] in jobs:
         configuration_lines.append(
-            f"- evaluation (b), best sequential vs. swap-asap: `p_ge_50km={args.p_gen_values_b}`, "
-            f"`edge_skew={args.edge_skew_values_b}`, `w0_50km={EVALUATION_B_W0:g}`"
+            "- evaluation (b), best sequential vs. swap-asap: "
+            f"`generation_scaling_eta={plotted_values_text('p-gen', args.p_gen_values_b, '--p-ge-values-b')}`, "
+            f"`right_edge_scaling_eta_ZE={plotted_values_text('edge-skew', args.edge_skew_values_b, '--edge-skew-values-b')}`, "
+            f"`w0_scaling_eta_w={werner_scaling_factor(EVALUATION_B_W0):.4g}`"
         )
     lines = [
         "# Swap Scheme Optimality",
