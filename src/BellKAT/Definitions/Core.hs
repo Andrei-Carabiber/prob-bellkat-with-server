@@ -115,18 +115,23 @@ type Distance = Int
 
 -- ^ Describes the hardware details of a quantum operation irrespective of input and output
 -- `BellPair`s, which are handled by `CreateBellPairArgs`
-data Op tag =
+data Op =
     FSkip
     -- ^ yiels mempty
-    | FCreate Probability StateQuality tag
-    | FGenerate Probability StateQuality Distance tag
-    | FTransmit Probability (CoherenceTime, CoherenceTime) Distance tag
+    | FCreate Probability StateQuality
+    | FGenerate Probability StateQuality Distance
+    | FTransmit Probability (CoherenceTime, CoherenceTime) Distance
     -- ^ all yield a probabilistic choice: singleton over the given TBP or empty
+    | FIdle [(CoherenceTime, CoherenceTime)]
+    -- ^ consumes and reproduces stored Bell pairs while reserving them for a round
     -- | TODO: the tag here is redundant
     | FDestroy
     -- ^ yields mempty (destroyed Bell pair)
     | FSwap Probability (CoherenceTime, CoherenceTime, CoherenceTime) (Distance, Distance)
     -- ^ yields the swapped Bell pair given the two in input, with probability p
+    | FSimSwap Probability ([(BellPair, (CoherenceTime, CoherenceTime))], (CoherenceTime, CoherenceTime)) [(BellPair, Distance)]
+                        -- ^ coherence time of pairs in the chain,        ^ coherence time of end nodes,   ^ distance of pairs in the chain  
+    -- ^ yields one end-to-end Bell pair by simultaneously swapping all pairs in the chain
     | FDistill (CoherenceTime, CoherenceTime) Distance
     -- ^ yields the distilled Bell pair given the two same-location ones in input
     -- ^ computing the probability dynamically

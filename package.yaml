@@ -69,8 +69,12 @@ library:
     - BellKAT.Implementations.GuardedAutomataStepQuantum
     - BellKAT.Implementations.AtomicOneStepQuantum
     - BellKAT.Implementations.ProbAtomicOneStepQuantum
+    - BellKAT.Implementations.ProbabilisticQuantumOps
+    - BellKAT.Implementations.MDPProbability
+    - BellKAT.Implementations.MDPWerner
     - BellKAT.Implementations.Output
     - BellKAT.Implementations.QuantumOps
+    - BellKAT.Implementations.MDPExtremal
     - BellKAT.Bundles.Core
     - BellKAT.Bundles.Desugaring
     - BellKAT.Bundles.OpBased
@@ -86,6 +90,8 @@ library:
     - BellKAT.Utils.Convex
     - BellKAT.Utils.Convex.Constraint
     - BellKAT.Utils.Convex.DConvexHull
+    - BellKAT.Utils.Cost
+    - BellKAT.Utils.MDP
     - BellKAT.Utils.Automata
     - BellKAT.Utils.Automata.NFA
     - BellKAT.Utils.Automata.EpsNFA
@@ -357,28 +363,174 @@ executables:
       - OverloadedLists
     ghc-options:
       - -rtsopts
+  quantP_oneswap:
+    dependencies: 
+      - bellkat
+    main: quantum-examples/validation/P_oneswap.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_onedist:
+    dependencies: 
+      - bellkat
+    main: quantum-examples/validation/P_onedist.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_distswap:
+    dependencies: 
+      - bellkat
+    main: quantum-examples/validation/P_distswap.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_star:
+    dependencies: 
+      - bellkat
+    main: quantum-examples/validation/P_star.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_deadlock_star_single_goal:
+    dependencies:
+      - bellkat
+    main: quantum-examples/deadlock/P_star_single_goal.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_deadlock_star_hub2:
+    dependencies:
+      - bellkat
+    main: quantum-examples/deadlock/P_star_hub2.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_deadlock_star_c3:
+    dependencies:
+      - bellkat
+    main: quantum-examples/deadlock/P_star_c3.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_deadlock_star_bad_scheduler:
+    dependencies:
+      - bellkat
+    main: quantum-examples/deadlock/P_star_bad_scheduler.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_swapasap:
+    dependencies: 
+      - bellkat
+    main: quantum-examples/validation/P_swapasap.hs
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_validate_swap_schemes:
+    dependencies:
+      - bellkat
+    main: P_validate_swap_schemes.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NetworkConfig
+      - Common.SwapSchemes
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_swap_schemes:
+    dependencies:
+      - bellkat
+    main: P_compare_swap_schemes.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NetworkConfig
+      - Common.SwapSchemes
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_distillation:
+    dependencies:
+      - bellkat
+    main: P_compare_distillation.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NetworkConfig
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_swap_parameters:
+    dependencies:
+      - bellkat
+    main: P_compare_swap_parameters.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NetworkConfig
+      - Common.SwapSchemes
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_nondet_goals:
+    dependencies:
+      - bellkat
+    main: P_compare_nondet_goals.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NondetTopology
+      - Common.NetworkConfig
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
+  quantP_compare_nondet_protocols:
+    dependencies:
+      - bellkat
+    main: P_compare_nondet_protocols.hs
+    source-dirs:
+      - quantum-examples/infocom
+    other-modules:
+      - Common.NondetTopology
+      - Common.NetworkConfig
+    default-extensions:
+      - OverloadedStrings
+      - OverloadedLists
+    ghc-options:
+      - -rtsopts
   quantPa:
     dependencies: 
       - bellkat
-    main: quantum-examples/Pa.hs
-    default-extensions:
-      - OverloadedStrings
-      - OverloadedLists
-    ghc-options:
-      - -rtsopts
-  quantPd:
-    dependencies: 
-      - bellkat
-    main: quantum-examples/Pd.hs
-    default-extensions:
-      - OverloadedStrings
-      - OverloadedLists
-    ghc-options:
-      - -rtsopts
-  quantPd_parallel:
-    dependencies: 
-      - bellkat
-    main: quantum-examples/Pd_parallel.hs
+    main: quantum-examples/qcnc/Pa.hs
     default-extensions:
       - OverloadedStrings
       - OverloadedLists
@@ -387,7 +539,7 @@ executables:
   quantP5_3_pompili:
     dependencies: 
       - bellkat
-    main: quantum-examples/P5_3_pompili.hs
+    main: quantum-examples/qcnc/P5_3_pompili.hs
     default-extensions:
       - OverloadedStrings
       - OverloadedLists
@@ -396,7 +548,7 @@ executables:
   quantP5_Li:
     dependencies: 
       - bellkat
-    main: quantum-examples/P5_Li.hs
+    main: quantum-examples/qcnc/P5_Li.hs
     default-extensions:
       - OverloadedStrings
       - OverloadedLists
@@ -405,7 +557,7 @@ executables:
   quantP5_Li_cutoff:
     dependencies: 
       - bellkat
-    main: quantum-examples/P5_Li_cutoff.hs
+    main: quantum-examples/qcnc/P5_Li_cutoff.hs
     default-extensions:
       - OverloadedStrings
       - OverloadedLists
@@ -414,7 +566,7 @@ executables:
   quantP5_LaCorte:
     dependencies: 
       - bellkat
-    main: quantum-examples/P5_LaCorte.hs
+    main: quantum-examples/qcnc/P5_LaCorte.hs
     default-extensions:
       - OverloadedStrings
       - OverloadedLists
@@ -423,7 +575,7 @@ executables:
   quantP5_Star:
     dependencies: 
       - bellkat
-    main: quantum-examples/P5_Star.hs
+    main: quantum-examples/qcnc/P5_Star.hs
     default-extensions:
       - OverloadedStrings
       - OverloadedLists
@@ -455,5 +607,3 @@ tests:
     dependencies:
       - hspec
       - bellkat
-    cpp-options:
-      - -DINSTANTANEOUS_OPS_FALSE

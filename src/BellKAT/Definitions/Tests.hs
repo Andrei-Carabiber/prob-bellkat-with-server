@@ -19,6 +19,11 @@ module BellKAT.Definitions.Tests
     boundedTestSingleton,
     boundedTestContains,
     boundedTestNotContains,
+    PairSelector(..),
+    KindedTest,
+    kindedTestContains,
+    kindedTestNotContains,
+    toSelectorPredicate,
     rangeGreater,
     rangeNotGreater,
     ) where
@@ -211,3 +216,95 @@ testRange bp (lb, ub) bps =
     let c = Mset.count' bp bps
      in c >= lb && maybe True (c <) ub
 
+data PairSelector tag
+    = StaticPair tag
+    | PurePair tag
+    | MixedPair tag
+    deriving stock (Eq, Ord)
+
+instance Show tag => Show (PairSelector tag) where
+    show (StaticPair tag) = "static:" <> show tag
+    show (PurePair tag) = "pure:" <> show tag
+    show (MixedPair tag) = "mixed:" <> show tag
+
+instance Default tag => Default (PairSelector tag) where
+    def = StaticPair def
+
+-- | Test wrapper used by QBKAT to distinguish static, pure, and mixed queries.
+-- Guard checks, e.g. if or while, ignore purity and only inspect static pair presence
+-- Kinded event tests can distinguish static/pure/mixed by expanding PairSelector
+newtype KindedTest tag = KindedTest (BoundedTest (PairSelector tag))
+    deriving newtype (Eq)
+
+kindedTestContains :: Ord tag => TaggedBellPairs (PairSelector tag) -> KindedTest tag
+kindedTestContains = KindedTest . boundedTestContains
+
+kindedTestNotContains :: Ord tag => TaggedBellPairs (PairSelector tag) -> KindedTest tag
+kindedTestNotContains = KindedTest . boundedTestNotContains
+
+toSelectorPredicate :: Ord tag => KindedTest tag -> BellPairsPredicate (PairSelector tag)
+toSelectorPredicate (KindedTest t) = toBPsPredicate t
+
+instance Test KindedTest where
+    toBPsPredicate (KindedTest t) =
+        BPsPredicate $
+            getBPsPredicate (toBPsPredicate t) . expandCollapsedSelectors
+
+instance Ord tag => Boolean (KindedTest tag) where
+    true = KindedTest true
+    false = KindedTest false
+    notB (KindedTest t) = KindedTest (notB t)
+    KindedTest x ||* KindedTest y = KindedTest (x ||* y)
+    KindedTest x &&* KindedTest y = KindedTest (x &&* y)
+
+instance Ord tag => DecidableBoolean (KindedTest tag) where
+    isFalse (KindedTest t) = isFalse t
+
+instance (Tag tag, Default tag) => Show (KindedTest tag) where
+    show (KindedTest xs)
+      | xs == true = "⊤"
+      | xs == false = "⊥"
+      | otherwise = intercalate "∨" $ map showSelectorBounds disjuncts
+      where
+        BoundedTest disjuncts = xs
+
+showSelectorBounds :: (Tag tag, Default tag) => Bounds (PairSelector tag) -> String
+showSelectorBounds = intercalate "∧" . map showSelectorBound . Map.toList
+
+showSelectorBound :: (Tag tag, Default tag) => (TaggedBellPair (PairSelector tag), Range) -> String
+showSelectorBound (bp, (lb, ub)) =
+    let bpS = showSelectorPair bp
+        lbs = case lb of
+                0 -> Nothing
+                1 -> Just bpS
+                n -> Just $ show n <> "×" <> bpS
+        ubs = case ub of
+                Nothing -> Nothing
+                Just 1 -> Just $ "¬" <> bpS
+                Just n -> Just $ "¬" <> show n <> "×" <> bpS
+     in intercalate "∧" $ catMaybes [lbs, ubs]
+
+showSelectorPair :: (Tag tag, Default tag) => TaggedBellPair (PairSelector tag) -> String
+showSelectorPair (TaggedBellPair bp selector) =
+    case selector of
+        StaticPair tag -> showTaggedSelectorPair '~' bp tag
+        PurePair tag -> showTaggedSelectorPair '-' bp tag
+        MixedPair tag -> showTaggedSelectorPair '=' bp tag
+
+showTaggedSelectorPair :: (Tag tag, Default tag) => Char -> BellPair -> tag -> String
+showTaggedSelectorPair sep bp tag =
+    let (l1, l2) = locations bp
+        tagSuffix
+          | tag == def = ""
+          | otherwise = show tag
+     in name l1 <> [sep] <> name l2 <> tagSuffix
+
+expandCollapsedSelectors :: Ord tag => TaggedBellPairs tag -> TaggedBellPairs (PairSelector tag)
+expandCollapsedSelectors (Mset.LMS (bps, ())) =
+    Mset.fromList (concatMap expandPair (toList bps)) Mset.@ ()
+  where
+    expandPair (TaggedBellPair bp tag) =
+        [ TaggedBellPair bp (StaticPair tag)
+        , TaggedBellPair bp (PurePair tag)
+        , TaggedBellPair bp (MixedPair tag)
+        ]

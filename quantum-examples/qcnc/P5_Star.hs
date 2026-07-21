@@ -24,7 +24,10 @@ networkCapacity :: NetworkCapacity QBKATTag
 networkCapacity = ["A" ~ "H", "B" ~ "H", "C" ~ "H", "C" ~ "H"]
 
 nb :: NetworkBounds QBKATTag
-nb = (NetworkBounds { nbCapacity = Just networkCapacity, nbCutoff = Nothing })
+nb = def
+    { nbCapacity = Just networkCapacity
+    , nbOperationTiming = InstantaneousOps
+    }
 
 actionConfig :: ProbabilisticActionConfiguration
 actionConfig =
