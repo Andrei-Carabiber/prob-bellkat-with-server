@@ -8,12 +8,10 @@ import { createIsolatedWorkspace } from './workspace.js';
 
 // Commands are validated against BellKAT.QuantumPrelude's qcoParser / the
 // analogous probabilistic parser. "run"/"execution-trace"/"probability" exist
-// in both preludes; "mdp"/"qmdp" only exist once QuantumPrelude
-// (with its QBKATTag-specific NetworkBounds/MDP pipelines) is imported.
-const SHARED_COMMANDS = new Set(['run', 'execution-trace', 'probability']);
-const QUANTUM_ONLY_COMMANDS = new Set([ 'mdp', 'qmdp']);
-const PROBABILISTIC_COMMANDS = SHARED_COMMANDS;
-const QUANTUM_COMMANDS = new Set([...SHARED_COMMANDS, ...QUANTUM_ONLY_COMMANDS]);
+// in both preludes; "mdp"/"qmdp" only exist once QuantumPrelude (with its
+// QBKATTag-specific NetworkBounds/MDP pipelines) is imported.
+const PROBABILISTIC_COMMANDS = new Set(['run', 'probability']);
+const QUANTUM_COMMANDS = new Set(['mdp', 'qmdp']);
 
 const SHARED_BUILD_DIR = '/opt/pbkat/shared-build-cache';
 const execAsync = promisify(exec);
@@ -35,16 +33,30 @@ export function createProtocolRouter() {
         if (!allowedCommands.has(command)) {
             return res.status(400).json({
                 error: `Command "${command}" is not valid for ${mode} mode. Available commands: ${[...allowedCommands].join(', ')}.`,
+                mode,
+                command,
+            });
+        }
+
+        // Defense in depth: re-derive this from the actual code rather than
+        // trusting the client's mode/command alone. A ProbBellKATPolicy value
+        // can't be passed where mdp/qmdp expect a QBKATPolicy, so this is
+        // rejected even if a stale/tampered client still asks for it.
+        if (code.includes('ProbBellKATPolicy') && !PROBABILISTIC_COMMANDS.has(command)) {
+            return res.status(400).json({
+                error: `Command "${command}" isn't valid: this code uses ProbBellKATPolicy, which can't be run with mdp/qmdp (those require a QBKATPolicy).`,
+                mode,
+                command,
             });
         }
 
         // mdp/qmdp only: mirrors resolveExtremalQuery's mutual-exclusivity check
         // in BellKAT.QuantumPrelude, so a bad combo fails fast with a clear
         // message instead of surfacing as an opaque Haskell ioError.
-        const hasTruncation = req.body.truncation !== undefined && req.body.truncation !== null && req.body.truncation !== '';
-        const hasCoverage = req.body.coverage !== undefined && req.body.coverage !== null && req.body.coverage !== '';
+        const hasTruncation = req.body.truncation !== undefined && req.body.truncation !== null && req.body.truncation !== '' && Number(req.body.truncation) !== -1;
+        const hasCoverage = req.body.coverage !== undefined && req.body.coverage !== null && req.body.coverage !== '' && Number(req.body.coverage) !== -1;
         if (hasTruncation && hasCoverage) {
-            return res.status(400).json({ error: 'Use either "coverage" or "truncation", not both.' });
+            return res.status(400).json({ error: 'Use either "coverage" or "truncation", not both.', mode, command });
         }
 
         const requestId = crypto.randomUUID();
@@ -68,25 +80,26 @@ export function createProtocolRouter() {
 
             args.push(command);
 
-            if (req.body.json) args.push('--json');
-            if (req.body.computeExtremal) args.push('--compute-extremal');
-            if (req.body.dumpDp) args.push('--dump-dp');
+            if (mode === 'quantum') args.push('--json');
 
+            const isMdpFamily = command === 'mdp' || command === 'qmdp';
+            if (isMdpFamily && req.body.computeExtremal) args.push('--compute-extremal');
+            if (isMdpFamily && req.body.dumpDp) args.push('--dump-dp');
             // Coerce to Number rather than requiring typeof === 'number', since
             // values coming from a form input arrive as strings and were
             // previously being silently dropped. Number(...) still rejects
             // anything non-numeric, so this stays injection-safe.
-            if (hasTruncation) {
+            if (isMdpFamily && hasTruncation) {
                 const truncation = Number(req.body.truncation);
                 if (!Number.isFinite(truncation)) {
-                    return res.status(400).json({ error: `Invalid truncation value: ${req.body.truncation}` });
+                    return res.status(400).json({ error: `Invalid truncation value: ${req.body.truncation}`, mode, command });
                 }
                 args.push(`--truncation ${truncation}`);
             }
-            if (hasCoverage) {
+            if (isMdpFamily && hasCoverage) {
                 const coverage = Number(req.body.coverage);
                 if (!Number.isFinite(coverage)) {
-                    return res.status(400).json({ error: `Invalid coverage value: ${req.body.coverage}` });
+                    return res.status(400).json({ error: `Invalid coverage value: ${req.body.coverage}`, mode, command });
                 }
                 args.push(`--coverage ${coverage}`);
             }
@@ -118,6 +131,8 @@ export function createProtocolRouter() {
                             error: '"--json run" did not produce a parseable JSON line.',
                             stderr,
                             debug: runResult.stdout.slice(0, 4000),
+                            mode,
+                            command,
                         });
                     }
 
@@ -139,7 +154,7 @@ export function createProtocolRouter() {
                     stderr = result.stderr;
                 }
             } catch (error) {
-                return res.status(500).json({ error: error.message, stderr: error.stderr ?? stderr });
+                return res.status(500).json({ error: error.message, stderr: error.stderr ?? stderr, mode, command });
             } finally {
                 await fs.rm(workspacePath, { recursive: true, force: true }).catch((cleanupErr) => {
                     console.error(`Failed to clean up workspace ${workspacePath}:`, cleanupErr);
@@ -148,9 +163,16 @@ export function createProtocolRouter() {
 
             let msg = stdout.trim();
 
-            // 2. Parse output based on formatting requirements
-            if (req.body.json) {
-                // For --json outputs on mdp/qmdp, extract the clean JSON line from Cabal's build noise
+            if (command === 'probability') {
+                // Bare rational output — this branch's cabal invocation never gets --json,
+                // regardless of mode, so check this before the mode-based branches.
+                const lines = msg.split('\n').map(l => l.trim()).filter(Boolean);
+                if (lines.length) {
+                    msg = lines[lines.length - 1];
+                }
+            } else if (mode === 'quantum') {
+                // --json was always passed for quantum mode; extract the clean JSON line
+                // from Cabal's build noise.
                 const candidateLines = msg.split('\n').map(l => l.trim()).filter(Boolean);
                 let jsonLine = null;
                 for (let i = candidateLines.length - 1; i >= 0; i--) {
@@ -161,27 +183,20 @@ export function createProtocolRouter() {
                     } catch {}
                 }
                 msg = jsonLine || '{"error": "Failed to extract JSON from execution output."}';
-            } else if (command !== 'probability') {
-                // Standard non-JSON output (slices at the convex-set diamond)
+            } else {
                 const diamondIndex = msg.indexOf("⦅");
                 if (diamondIndex !== -1) {
                     msg = msg.slice(diamondIndex, msg.length);
                 }
-            } else {
-                // Bare rational output for probability
-                const lines = msg.split('\n').map(l => l.trim()).filter(Boolean);
-                if (lines.length) {
-                    msg = lines[lines.length - 1];
-                }
             }
 
-            return res.json({ output: msg, stats: stderr.trim(), mode:command });
+            return res.json({ output: msg, stats: stderr.trim(), mode, command });
 
         } catch (err) {
             if (workspacePath) {
                 await fs.rm(workspacePath, { recursive: true, force: true }).catch(() => {});
             }
-            return res.status(500).json({ error: `Server failed to initialize run: ${err.message}` });
+            return res.status(500).json({ error: `Server failed to initialize run: ${err.message}`, mode, command });
         }
     });
 
