@@ -6,7 +6,8 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createIsolatedWorkspace } from './workspace.js';
 
-const ALLOWED_COMMANDS = new Set(['run', 'execution-trace', 'probability']);
+// Added quantum commands
+const ALLOWED_COMMANDS = new Set(['run', 'execution-trace', 'probability', 'mdp', 'qmdp']);
 const SHARED_BUILD_DIR = '/opt/pbkat/shared-build-cache';
 const execAsync = promisify(exec);
 
@@ -34,6 +35,27 @@ export function createProtocolRouter() {
             let stdout = '';
             let stderr = '';
 
+            // 1. Safely construct the execution arguments
+            const args = [];
+
+            // Support for "pure qmdp" or "pure mdp"
+            if (req.body.pure) args.push('pure');
+
+            args.push(command);
+
+            if (req.body.json) args.push('--json');
+            if (req.body.computeExtremal) args.push('--compute-extremal');
+
+            // Ensure numeric bounds to prevent command injection
+            if (typeof req.body.truncation === 'number') {
+                args.push(`--truncation ${req.body.truncation}`);
+            }
+            if (typeof req.body.coverage === 'number') {
+                args.push(`--coverage ${req.body.coverage}`);
+            }
+
+            const argsString = args.join(' ');
+
             try {
                 if (command === 'probability') {
                     const runResult = await execAsync(
@@ -42,11 +64,6 @@ export function createProtocolRouter() {
                     );
                     stderr += runResult.stderr;
 
-                    // cabal prints its build log (Resolving dependencies..., Building
-                    // executable..., etc.) to STDOUT when it needs to (re)build, with the
-                    // program's real output appended as the last line(s). Scan from the end
-                    // for the line that's actually valid JSON rather than assuming stdout
-                    // is JSON from the first character.
                     const candidateLines = runResult.stdout.split('\n').map(l => l.trim()).filter(Boolean);
                     let jsonLine = null;
                     for (let i = candidateLines.length - 1; i >= 0; i--) {
@@ -55,20 +72,18 @@ export function createProtocolRouter() {
                             jsonLine = candidateLines[i];
                             break;
                         } catch {
-                            // not the JSON line (probably cabal build-log noise), keep scanning
+                            // keep scanning
                         }
                     }
 
                     if (jsonLine === null) {
                         return res.status(500).json({
-                            error: '"--json run" did not produce a parseable JSON line; cannot feed it into "probability". See "debug" for the raw output.',
+                            error: '"--json run" did not produce a parseable JSON line.',
                             stderr,
                             debug: runResult.stdout.slice(0, 4000),
                         });
                     }
 
-                    // Persist just the JSON line and feed it in as stdin for step 2, once
-                    // step 1 (and its build) has fully completed.
                     const jsonPath = path.join(workspacePath, 'run-output.json');
                     await fs.writeFile(jsonPath, jsonLine, 'utf-8');
 
@@ -80,7 +95,7 @@ export function createProtocolRouter() {
                     stdout = probResult.stdout;
                 } else {
                     const result = await execAsync(
-                        `cabal run playground --builddir=${SHARED_BUILD_DIR} -- ${command}`,
+                        `cabal run playground --builddir=${SHARED_BUILD_DIR} -- ${argsString}`,
                         execOpts
                     );
                     stdout = result.stdout;
@@ -96,16 +111,27 @@ export function createProtocolRouter() {
 
             let msg = stdout.trim();
 
-            // Only "run" / "execution-trace" output uses the ⦅...⦆ convex-set notation.
-            // "probability" output is a bare rational (p(Goal)); cabal may still prefix it
-            // with build-log noise on stdout, so take the last non-empty line as the answer
-            // rather than slicing on "⦅" (indexOf returns -1 -> slice(-1) keeps just 1 char).
-            if (command !== 'probability') {
+            // 2. Parse output based on formatting requirements
+            if (req.body.json) {
+                // For --json outputs on mdp/qmdp, extract the clean JSON line from Cabal's build noise
+                const candidateLines = msg.split('\n').map(l => l.trim()).filter(Boolean);
+                let jsonLine = null;
+                for (let i = candidateLines.length - 1; i >= 0; i--) {
+                    try {
+                        JSON.parse(candidateLines[i]);
+                        jsonLine = candidateLines[i];
+                        break;
+                    } catch {}
+                }
+                msg = jsonLine || '{"error": "Failed to extract JSON from execution output."}';
+            } else if (command !== 'probability') {
+                // Standard non-JSON output (slices at the convex-set diamond)
                 const diamondIndex = msg.indexOf("⦅");
                 if (diamondIndex !== -1) {
                     msg = msg.slice(diamondIndex, msg.length);
                 }
             } else {
+                // Bare rational output for probability
                 const lines = msg.split('\n').map(l => l.trim()).filter(Boolean);
                 if (lines.length) {
                     msg = lines[lines.length - 1];
