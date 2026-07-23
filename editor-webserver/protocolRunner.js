@@ -14,7 +14,6 @@ export function createProtocolRouter() {
     const router = Router();
 
     router.post('/run-protocol', async (req, res) => {
-        console.log("COMMAND RECEIVED IS : " + req.body.command)
         const code = req.body.code;
         const command = ALLOWED_COMMANDS.has(req.body.command) ? req.body.command : 'run';
 
