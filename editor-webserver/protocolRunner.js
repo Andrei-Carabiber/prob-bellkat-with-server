@@ -6,8 +6,15 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createIsolatedWorkspace } from './workspace.js';
 
-// Added quantum commands
-const ALLOWED_COMMANDS = new Set(['run', 'execution-trace', 'probability', 'mdp', 'qmdp']);
+// Commands are validated against BellKAT.QuantumPrelude's qcoParser / the
+// analogous probabilistic parser. "run"/"execution-trace"/"probability" exist
+// in both preludes; "mdp"/"qmdp" only exist once QuantumPrelude
+// (with its QBKATTag-specific NetworkBounds/MDP pipelines) is imported.
+const SHARED_COMMANDS = new Set(['run', 'execution-trace', 'probability']);
+const QUANTUM_ONLY_COMMANDS = new Set([ 'mdp', 'qmdp']);
+const PROBABILISTIC_COMMANDS = SHARED_COMMANDS;
+const QUANTUM_COMMANDS = new Set([...SHARED_COMMANDS, ...QUANTUM_ONLY_COMMANDS]);
+
 const SHARED_BUILD_DIR = '/opt/pbkat/shared-build-cache';
 const execAsync = promisify(exec);
 
@@ -16,10 +23,28 @@ export function createProtocolRouter() {
 
     router.post('/run-protocol', async (req, res) => {
         const code = req.body.code;
-        const command = ALLOWED_COMMANDS.has(req.body.command) ? req.body.command : 'run';
 
         if (!code || typeof code !== 'string') {
             return res.status(400).json({ error: 'Missing "code" in request body' });
+        }
+
+        const mode = req.body.mode === 'quantum' ? 'quantum' : 'probabilistic';
+        const allowedCommands = mode === 'quantum' ? QUANTUM_COMMANDS : PROBABILISTIC_COMMANDS;
+        const command = req.body.command;
+
+        if (!allowedCommands.has(command)) {
+            return res.status(400).json({
+                error: `Command "${command}" is not valid for ${mode} mode. Available commands: ${[...allowedCommands].join(', ')}.`,
+            });
+        }
+
+        // mdp/qmdp only: mirrors resolveExtremalQuery's mutual-exclusivity check
+        // in BellKAT.QuantumPrelude, so a bad combo fails fast with a clear
+        // message instead of surfacing as an opaque Haskell ioError.
+        const hasTruncation = req.body.truncation !== undefined && req.body.truncation !== null && req.body.truncation !== '';
+        const hasCoverage = req.body.coverage !== undefined && req.body.coverage !== null && req.body.coverage !== '';
+        if (hasTruncation && hasCoverage) {
+            return res.status(400).json({ error: 'Use either "coverage" or "truncation", not both.' });
         }
 
         const requestId = crypto.randomUUID();
@@ -45,13 +70,25 @@ export function createProtocolRouter() {
 
             if (req.body.json) args.push('--json');
             if (req.body.computeExtremal) args.push('--compute-extremal');
+            if (req.body.dumpDp) args.push('--dump-dp');
 
-            // Ensure numeric bounds to prevent command injection
-            if (typeof req.body.truncation === 'number') {
-                args.push(`--truncation ${req.body.truncation}`);
+            // Coerce to Number rather than requiring typeof === 'number', since
+            // values coming from a form input arrive as strings and were
+            // previously being silently dropped. Number(...) still rejects
+            // anything non-numeric, so this stays injection-safe.
+            if (hasTruncation) {
+                const truncation = Number(req.body.truncation);
+                if (!Number.isFinite(truncation)) {
+                    return res.status(400).json({ error: `Invalid truncation value: ${req.body.truncation}` });
+                }
+                args.push(`--truncation ${truncation}`);
             }
-            if (typeof req.body.coverage === 'number') {
-                args.push(`--coverage ${req.body.coverage}`);
+            if (hasCoverage) {
+                const coverage = Number(req.body.coverage);
+                if (!Number.isFinite(coverage)) {
+                    return res.status(400).json({ error: `Invalid coverage value: ${req.body.coverage}` });
+                }
+                args.push(`--coverage ${coverage}`);
             }
 
             const argsString = args.join(' ');
@@ -138,7 +175,7 @@ export function createProtocolRouter() {
                 }
             }
 
-            return res.json({ output: msg, stats: stderr.trim() });
+            return res.json({ output: msg, stats: stderr.trim(), mode:command });
 
         } catch (err) {
             if (workspacePath) {
