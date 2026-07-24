@@ -78,9 +78,11 @@ export function createProtocolRouter() {
             // Support for "pure qmdp" or "pure mdp"
             if (req.body.pure) args.push('pure');
 
+            if (mode === 'quantum') args.push('--json');
+
+
             args.push(command);
 
-            if (mode === 'quantum') args.push('--json');
 
             const isMdpFamily = command === 'mdp' || command === 'qmdp';
             if (isMdpFamily && req.body.computeExtremal) args.push('--compute-extremal');
@@ -108,6 +110,7 @@ export function createProtocolRouter() {
 
             try {
                 if (command === 'probability') {
+                    console.log("Command RAN : " + `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json run`)
                     const runResult = await execAsync(
                         `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json run`,
                         execOpts
@@ -139,13 +142,15 @@ export function createProtocolRouter() {
                     const jsonPath = path.join(workspacePath, 'run-output.json');
                     await fs.writeFile(jsonPath, jsonLine, 'utf-8');
 
+                    console.log("Command RAN : " + `cabal run playground --builddir=${SHARED_BUILD_DIR} -- probability < ${jsonPath}`)
                     const probResult = await execAsync(
-                        `cabal run playground --builddir=${SHARED_BUILD_DIR} -- probability < ${jsonPath}`,
+                            `cabal run playground --builddir=${SHARED_BUILD_DIR} -- probability < ${jsonPath}`,
                         execOpts
                     );
                     stderr += probResult.stderr;
                     stdout = probResult.stdout;
                 } else {
+                    console.log("COMMAND RAN : " + `cabal run playground --builddir=${SHARED_BUILD_DIR} -- ${argsString}`)
                     const result = await execAsync(
                         `cabal run playground --builddir=${SHARED_BUILD_DIR} -- ${argsString}`,
                         execOpts
