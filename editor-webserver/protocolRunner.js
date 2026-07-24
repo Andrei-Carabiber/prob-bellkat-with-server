@@ -78,11 +78,9 @@ export function createProtocolRouter() {
             // Support for "pure qmdp" or "pure mdp"
             if (req.body.pure) args.push('pure');
 
-            if (mode === 'quantum') args.push('--json');
-
+            if (mode === 'quantum' && !req.body.pure) args.push('--json');
 
             args.push(command);
-
 
             const isMdpFamily = command === 'mdp' || command === 'qmdp';
             if (isMdpFamily && req.body.computeExtremal) args.push('--compute-extremal');
@@ -108,11 +106,13 @@ export function createProtocolRouter() {
 
             const argsString = args.join(' ');
 
+            let lastRanCommand;
+
             try {
                 if (command === 'probability') {
-                    console.log("Command RAN : " + `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json run`)
+                    lastRanCommand = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json run`
                     const runResult = await execAsync(
-                        `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json run`,
+                        lastRanCommand,
                         execOpts
                     );
                     stderr += runResult.stderr;
@@ -142,17 +142,17 @@ export function createProtocolRouter() {
                     const jsonPath = path.join(workspacePath, 'run-output.json');
                     await fs.writeFile(jsonPath, jsonLine, 'utf-8');
 
-                    console.log("Command RAN : " + `cabal run playground --builddir=${SHARED_BUILD_DIR} -- probability < ${jsonPath}`)
+                    lastRanCommand = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- probability < ${jsonPath}`
                     const probResult = await execAsync(
-                            `cabal run playground --builddir=${SHARED_BUILD_DIR} -- probability < ${jsonPath}`,
+                            lastRanCommand,
                         execOpts
                     );
                     stderr += probResult.stderr;
                     stdout = probResult.stdout;
                 } else {
-                    console.log("COMMAND RAN : " + `cabal run playground --builddir=${SHARED_BUILD_DIR} -- ${argsString}`)
+                    lastRanCommand = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- ${argsString}`;
                     const result = await execAsync(
-                        `cabal run playground --builddir=${SHARED_BUILD_DIR} -- ${argsString}`,
+                        lastRanCommand,
                         execOpts
                     );
                     stdout = result.stdout;
@@ -161,6 +161,7 @@ export function createProtocolRouter() {
             } catch (error) {
                 return res.status(500).json({ error: error.message, stderr: error.stderr ?? stderr, mode, command });
             } finally {
+                console.log("Last ran command is: " + lastRanCommand)
                 await fs.rm(workspacePath, { recursive: true, force: true }).catch((cleanupErr) => {
                     console.error(`Failed to clean up workspace ${workspacePath}:`, cleanupErr);
                 });
