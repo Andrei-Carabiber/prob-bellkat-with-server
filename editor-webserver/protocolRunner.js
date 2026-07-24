@@ -55,7 +55,7 @@ export function createProtocolRouter() {
         // message instead of surfacing as an opaque Haskell ioError.
         const hasTruncation = req.body.truncation !== undefined && req.body.truncation !== null && req.body.truncation !== '' && Number(req.body.truncation) !== -1;
         const hasCoverage = req.body.coverage !== undefined && req.body.coverage !== null && req.body.coverage !== '' && Number(req.body.coverage) !== -1;
-        if (hasTruncation && hasCoverage) {
+        if (hasTruncation && hasCoverage && mode === 'quantum') {
             return res.status(400).json({ error: 'Use either "coverage" or "truncation", not both.', mode, command });
         }
 
