@@ -16,7 +16,7 @@ export type QBKATProbQualityOutput = {
     wernerArray: number[]
 }
 
-export type QBKATReturnType = {
+type QBKATReturnType = {
     extremal: {
         coverage_status: any;
         goal_states: Object[];
@@ -137,7 +137,7 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
         const wernerSeries = pureSeries.cdf_max.map((value, index) => {
 
             if (series.cdf_max[index] === 0) {
-                return 1
+                return -1
             }
 
             else return value / series.cdf_max[index]
