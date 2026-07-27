@@ -59,6 +59,8 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
 
         const execOpts = {cwd: workspacePath, maxBuffer: 1024 * 1024 * 10};
 
+        const executionMode = probOnly ? "mdp" : "qmdp"
+
 
         //Coverage selected
         if (truncation === -1) {
@@ -66,14 +68,14 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
 
                 throw new Error("Truncation cannot be less than 0")
             }
-            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --coverage ${coverage}`;
+            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json ${executionMode} --compute-extremal --coverage ${coverage}`;
         }
         //Truncation Selected
         else {
             if (truncation < 0) {
                 throw new Error("Coverage needs to be between 0 and 1")
             }
-            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --truncation ${truncation}`;
+            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json ${executionMode} --compute-extremal --truncation ${truncation}`;
         }
 
 
@@ -90,11 +92,7 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
         if (series.cdf_max.length !== series.cdf_min.length) {
             throw new Error("CDFMax is not the same length as CDFMin! Something went wrong in the server")
         }
-        const canCalculateWerner = series.cdf_max.every((value, index) => {
-            if (value === series.cdf_min[index]) {
-                return false
-            }
-        })
+        const canCalculateWerner = series.cdf_max.every((value, index) => value === series.cdf_min[index])
 
         if (!canCalculateWerner || probOnly) {
             return {
@@ -111,12 +109,11 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
         const newCode = code.replace("hasSubset", "hasPureSubset")
         await fs.writeFile(playgroundFile, newCode, 'utf-8');
 
+
         if (truncation === -1) {
-            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --coverage ${coverage}`;
-        }
-        //Truncation Selected
-        else {
-            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --truncation ${truncation}`;
+            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --compute-extremal --coverage ${coverage}`;
+        } else {
+            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --compute-extremal --truncation ${truncation}`;
         }
 
         const {stdout: pureResult} = await execAsync(
@@ -125,11 +122,32 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
         )
 
         const pureResultArray = pureResult.split("\n")
-        console.log(pureResultArray)
-        const pureResultParsed: QBKATReturnType = JSON.parse(resultArray[resultArray.length - 1]) as QBKATReturnType
+        const pureResultParsed: QBKATReturnType = JSON.parse(pureResultArray[pureResultArray.length - 1]) as QBKATReturnType;
 
+        const pureSeries = pureResultParsed.extremal.series
 
-        console.log(pureResultArray)
+        console.log("PureSeries")
+        console.log(pureSeries)
+
+        console.log("NormalSeries")
+        console.log(series)
+
+        // Werner quality = [pureSerie] / [MixedSerie]
+
+        const wernerSeries = pureSeries.cdf_max.map((value, index) => {
+
+            if (series.cdf_max[index] === 0) {
+                return 1
+            }
+
+            else return value / series.cdf_max[index]
+        })
+
+        return {
+            mode: "probQuality",
+            probability: series.cdf_max,
+            wernerArray: wernerSeries
+        } as QBKATProbQualityOutput
 
 
     } catch (e) {
