@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
-import { createProtocolRouter } from './protocolRunner.js';
+import {createProtocolRouter} from './routes/protocol/protocol-route.js'
 import { setupHlsWebSocket, replenishPool, shutdownPool } from './hlsPool.js';
 
 const app = express();

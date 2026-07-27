@@ -27,7 +27,7 @@ const QuantumOutputSchema = z.object({
     }
 })
 
-export function createProtocolRouter() {
+function createProtocolRouter() {
     const router = Router();
 
     const validateBody = (schema) => {
