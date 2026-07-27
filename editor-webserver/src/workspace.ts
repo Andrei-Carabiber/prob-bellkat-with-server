@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 
 export const TEMPLATE_DIR = path.resolve('/opt/pbkat');
 
-export async function createIsolatedWorkspace(id) {
+export async function createIsolatedWorkspace(id: string): Promise<string> {
     const workspacePath = path.resolve(`/tmp/pbkat-workspace-${id}`);
     await fs.mkdir(workspacePath, { recursive: true });
 

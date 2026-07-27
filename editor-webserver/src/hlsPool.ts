@@ -11,7 +11,7 @@ async function spawnWorker() {
     const id = crypto.randomUUID();
     const workspacePath = await createIsolatedWorkspace(id);
 
-    const hlsProcess = createServerProcess(
+    const hlsProcess : any = createServerProcess(
         'Haskell', 'haskell-language-server-wrapper', ['--lsp'],
         { cwd: workspacePath }
     );
@@ -21,7 +21,7 @@ async function spawnWorker() {
     // Single listener for the lifetime of this HLS process.
     // During pre-warming: respond to HLS requests with stubs so it doesn't hang.
     // After a client connects: forward everything to the client's writer.
-    hlsProcess.reader.listen((msg) => {
+    hlsProcess.reader.listen((msg: any) => {
         if (msg.id !== undefined && msg.result && worker.cachedInitializeResult === null && msg.result.capabilities) {
             worker.cachedInitializeResult = msg;
         }
@@ -129,7 +129,7 @@ export function setupHlsWebSocket(wss) {
                     activeDocUri = null;
                 });
 
-                hlsProcess.reader.listen((msg) => {
+                hlsProcess.reader.listen((msg: any) => {
                     if (msg.id !== undefined && msg.result && cachedInitializeResult === null && msg.result.capabilities) {
                         cachedInitializeResult = msg;
                     }
@@ -146,7 +146,7 @@ export function setupHlsWebSocket(wss) {
 
         let seenInitialize = false;
 
-        reader.listen((msg) => {
+        reader.listen((msg : any) => {
             if (!hlsProcess) return;
 
             if (msg.method === 'initialize' && cachedInitializeResult) {
@@ -166,7 +166,7 @@ export function setupHlsWebSocket(wss) {
                 return;
             }
             if (msg.method === 'shutdown') {
-                writer.write({ jsonrpc: '2.0', id: msg.id, result: null });
+                writer.write({ jsonrpc: '2.0', id: msg.id, result: null } as any);
                 return;
             }
             if (msg.method === 'exit') {
