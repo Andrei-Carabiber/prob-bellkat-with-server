@@ -55,3 +55,12 @@ test:
 
 README.pdf: README.md metadata.yaml
 	pandoc --pdf-engine=lualatex --metadata-file metadata.yaml --output $@ $<
+
+
+dev-webserver:
+	docker run --rm -it \
+		--entrypoint nix \
+		-p 8080:8080 \
+		--mount type=bind,source=$(PWD),target=/opt/pbkat \
+		pbkat:latest \
+		develop --command nix-shell -p nodejs_20 --run 'cd /opt/pbkat && npm run dev --prefix editor-webserver'
