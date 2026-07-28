@@ -65,15 +65,14 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
         //Coverage selected
         if (truncation === -1) {
             if (coverage < 0 || coverage > 1) {
-
-                throw new Error("Truncation cannot be less than 0")
+                throw new Error("Coverage needs to be between 0 and 1")
             }
             command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json ${executionMode} --compute-extremal --coverage ${coverage}`;
         }
         //Truncation Selected
         else {
             if (truncation < 0) {
-                throw new Error("Coverage needs to be between 0 and 1")
+                throw new Error("Truncation cannot be less than 0")
             }
             command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json ${executionMode} --compute-extremal --truncation ${truncation}`;
         }
@@ -109,12 +108,10 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
         const newCode = code.replace("hasSubset", "hasPureSubset")
         await fs.writeFile(playgroundFile, newCode, 'utf-8');
 
-
-        if (truncation === -1) {
-            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --compute-extremal --coverage ${coverage}`;
-        } else {
-            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --compute-extremal --truncation ${truncation}`;
+        if (series.cdf_max.length <= 1) {
+            throw new Error("Invalid size. Try to increase coverage or truncation")
         }
+        command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --compute-extremal --truncation ${series.cdf_max.length - 1}`;
 
         const {stdout: pureResult} = await execAsync(
             command,
@@ -126,22 +123,18 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
 
         const pureSeries = pureResultParsed.extremal.series
 
-        console.log("PureSeries")
-        console.log(pureSeries)
-
-        console.log("NormalSeries")
-        console.log(series)
-
-        // Werner quality = [pureSerie] / [MixedSerie]
-
         const wernerSeries = pureSeries.cdf_max.map((value, index) => {
 
             if (series.cdf_max[index] === 0) {
                 return -1
-            }
-
-            else return value / series.cdf_max[index]
+            } else return value / series.cdf_max[index]
         })
+
+        console.log("LENGTHS \n")
+        console.log(series.cdf_max.length)
+        console.log(pureSeries.cdf_max.length)
+        console.log(wernerSeries.length)
+
 
         return {
             mode: "probQuality",
@@ -149,10 +142,6 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
             wernerArray: wernerSeries
         } as QBKATProbQualityOutput
 
-
-    } catch (e) {
-        console.log(e)
-        throw e
     } finally {
         await fs.rm(workspacePath, {recursive: true, force: true}).catch((cleanupErr) => {
             console.error(`Failed to clean up workspace ${workspacePath}:`, cleanupErr);
