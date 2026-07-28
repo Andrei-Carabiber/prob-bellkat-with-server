@@ -8,12 +8,17 @@ export type QBKATProbOutput = {
     mode: "probOnly",
     probabilityMax: number[],
     probabilityMin: number[],
+    duration: number
 }
 export type QBKATProbQualityOutput = {
     mode: "probQuality",
 
     probability: number[],
-    wernerArray: number[]
+    wernerArray: number[],
+    durations: {
+        firstDuration : number
+        secondDuration: number
+    }
 }
 
 type QBKATReturnType = {
@@ -48,9 +53,12 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
         throw new Error("You cannot have both truncation and coverage selected")
     }
 
-    let command;
+    let command : string;
     const requestId = crypto.randomUUID();
-    let workspacePath;
+    let workspacePath : string;
+    let start: number;
+    let firstDuration: number;
+    let secondDuration: number;
     try {
         workspacePath = await createIsolatedWorkspace(requestId);
 
@@ -79,10 +87,12 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
 
 
         //Calculate mixed state probability
+        start = performance.now()
         const {stdout: result} = await execAsync(
             command,
             execOpts
         )
+        firstDuration = performance.now() - start
 
         const resultArray = result.split("\n")
         const parsedOutput: QBKATReturnType = JSON.parse(resultArray[resultArray.length - 1]) as QBKATReturnType
@@ -97,8 +107,9 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
             return {
                 mode: "probOnly",
                 probabilityMin: series.cdf_min,
-                probabilityMax: series.cdf_max
-            } as QBKATProbOutput
+                probabilityMax: series.cdf_max,
+                duration: firstDuration
+            }
         }
 
 
@@ -113,10 +124,12 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
         }
         command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --compute-extremal --truncation ${series.cdf_max.length - 1}`;
 
+        start = performance.now()
         const {stdout: pureResult} = await execAsync(
             command,
             execOpts
         )
+        secondDuration = performance.now() - start;
 
         const pureResultArray = pureResult.split("\n")
         const pureResultParsed: QBKATReturnType = JSON.parse(pureResultArray[pureResultArray.length - 1]) as QBKATReturnType;
@@ -130,17 +143,16 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
             } else return value / series.cdf_max[index]
         })
 
-        console.log("LENGTHS \n")
-        console.log(series.cdf_max.length)
-        console.log(pureSeries.cdf_max.length)
-        console.log(wernerSeries.length)
 
 
         return {
             mode: "probQuality",
             probability: series.cdf_max,
-            wernerArray: wernerSeries
-        } as QBKATProbQualityOutput
+            wernerArray: wernerSeries,
+            durations: {
+                firstDuration, secondDuration
+            }
+        }
 
     } finally {
         await fs.rm(workspacePath, {recursive: true, force: true}).catch((cleanupErr) => {

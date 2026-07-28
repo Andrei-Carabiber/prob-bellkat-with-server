@@ -4,7 +4,7 @@ import {exec} from "node:child_process";
 import {validate} from "../zod/validate-schema.js";
 import {ProtocolRequestBody, ProtocolRequestType} from "../zod/run-protocol-body-schema.js";
 import {QBKATProbOutput, QBKATProbQualityOutput, runQBKatCommand} from "./runQBKatCommand.js";
-import {PBKATOutputType, runPBKatCommand} from "./runPBKatCommand.js";
+import {PBKATOutput, runPBKatCommand} from "./runPBKatCommand.js";
 
 export const SHARED_BUILD_DIR = '/opt/pbkat/shared-build-cache';
 export const execAsync = promisify(exec);
@@ -15,13 +15,13 @@ export function createProtocolRouter() {
 
     router.post('/run-protocol', validate(ProtocolRequestBody), async (req, res) => {
 
-        const {code, command, truncation, coverage} = req.body as ProtocolRequestType;
+        const {code, command, truncation, coverage, probOnly} = req.body as ProtocolRequestType;
 
 
-        let result : QBKATProbQualityOutput | QBKATProbOutput | PBKATOutputType;
+        let result : QBKATProbQualityOutput | QBKATProbOutput | PBKATOutput;
         try {
             if (command === 'quantum') {
-                result = await runQBKatCommand(code, truncation, coverage, false)
+                result = await runQBKatCommand(code, truncation, coverage, probOnly)
             }
             else {
                 result = await runPBKatCommand(code, command)

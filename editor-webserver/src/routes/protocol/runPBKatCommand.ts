@@ -4,15 +4,22 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import {execAsync, SHARED_BUILD_DIR} from "./protocol-route.js";
 
-export type PBKATOutputType = {
+export type PBKATOutput = {
     mode: "run" | "probability",
-    output: string
+    output: string,
+    durations: {
+        firstDuration: number
+        secondDuration: number | null
+    }
 }
 
-export async function runPBKatCommand(code: string, command: "run" | "probability"): Promise<PBKATOutputType> {
+export async function runPBKatCommand(code: string, command: "run" | "probability"): Promise<PBKATOutput> {
 
     const requestId = crypto.randomUUID();
-    let workspacePath;
+    let workspacePath: string;
+    let firstDuration: number;
+    let secondDuration: number;
+    let start: number;
     try {
         workspacePath = await createIsolatedWorkspace(requestId);
 
@@ -23,10 +30,12 @@ export async function runPBKatCommand(code: string, command: "run" | "probabilit
 
         if (command === 'probability') {
             let commandToExecute = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json run`
+            start = performance.now()
             const runResult = await execAsync(
                 commandToExecute,
                 execOpts
             )
+            firstDuration = performance.now() - start
 
             let msgLines: string[] = runResult.stdout.split("\n").map(l => l.trim())
             let jsonLine: string | null = null;
@@ -48,29 +57,40 @@ export async function runPBKatCommand(code: string, command: "run" | "probabilit
             await fs.writeFile(jsonPath, jsonLine, 'utf-8');
 
             const probCmd = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- probability < ${jsonPath}`;
+            start = performance.now()
             const probResult = await execAsync(probCmd, execOpts);
+            secondDuration = performance.now() - start
+
 
             return {
                 mode: command,
-                output: probResult.stdout
+                output: probResult.stdout,
+                durations: {
+                    firstDuration,
+                    secondDuration
+                }
             }
 
         } else {
 
             let commandToExecute = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- run`;
+            start = performance.now()
             const result = await execAsync(
                 commandToExecute,
-                execOpts)
+                execOpts
+            )
+            firstDuration = performance.now() - start
 
             const outputArray = result.stdout.split("\n").filter(line => line.startsWith("⦅"))
             return {
                 mode: command,
-                output: outputArray[0]
+                output: outputArray[0],
+                durations: {
+                    firstDuration,
+                    secondDuration
+                }
             }
         }
-    } catch (e) {
-        console.log(e)
-        throw e
     } finally {
         await fs.rm(workspacePath, {recursive: true, force: true}).catch((cleanupErr) => {
             console.error(`Failed to clean up workspace ${workspacePath}:`, cleanupErr);
