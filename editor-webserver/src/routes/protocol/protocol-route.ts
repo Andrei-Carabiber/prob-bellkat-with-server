@@ -1,41 +1,50 @@
+import { LRUCache } from 'lru-cache';
+import { generateProtocolCacheKey } from './cache-util.js';
 import {Router} from "express";
-import {promisify} from "node:util";
-import {exec} from "node:child_process";
 import {validate} from "../zod/validate-schema.js";
 import {ProtocolRequestBody, ProtocolRequestType} from "../zod/run-protocol-body-schema.js";
 import {QBKATProbOutput, QBKATProbQualityOutput, runQBKatCommand} from "./runQBKatCommand.js";
 import {PBKATOutput, runPBKatCommand} from "./runPBKatCommand.js";
+import {promisify} from "node:util";
+import {exec} from "node:child_process";
 
 export const SHARED_BUILD_DIR = '/opt/pbkat/shared-build-cache';
 export const execAsync = promisify(exec);
 
+const protocolCache = new LRUCache<string, any>({
+    max: 500,
+    ttl: 1000 * 60 * 60 * 24,
+});
 
 export function createProtocolRouter() {
     const router = Router();
 
     router.post('/run-protocol', validate(ProtocolRequestBody), async (req, res) => {
+        const payload = req.body as ProtocolRequestType;
+        const cacheKey = generateProtocolCacheKey(payload);
 
-        const {code, command, truncation, coverage, probOnly} = req.body as ProtocolRequestType;
-
-
-        let result : QBKATProbQualityOutput | QBKATProbOutput | PBKATOutput;
-        try {
-            if (command === 'quantum') {
-                result = await runQBKatCommand(code, truncation, coverage, probOnly)
-            }
-            else {
-                result = await runPBKatCommand(code, command)
-            }
-
-            res.status(200).json(result)
-        } catch (e) {
-            console.log(e)
-            res.status(400).json({error: "Something went wrong: " + String(e)})
+        const cachedResult = protocolCache.get(cacheKey);
+        if (cachedResult) {
+            console.log(`[Cache Hit] Serving cached result for ${cacheKey}`);
+            return res.status(200).json({ ...cachedResult, _cached: true });
         }
 
-    })
+        let result: QBKATProbQualityOutput | QBKATProbOutput | PBKATOutput;
+        try {
+            if (payload.command === 'quantum') {
+                result = await runQBKatCommand(payload.code, payload.truncation, payload.coverage, payload.probOnly);
+            } else {
+                result = await runPBKatCommand(payload.code, payload.command);
+            }
 
-    return router
+            protocolCache.set(cacheKey, result);
 
+            res.status(200).json(result);
+        } catch (e) {
+            console.log(e);
+            res.status(400).json({ error: "Something went wrong: " + String(e) });
+        }
+    });
 
+    return router;
 }

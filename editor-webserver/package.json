@@ -15,6 +15,7 @@
   "dependencies": {
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "lru-cache": "^11.5.2",
     "vscode-ws-jsonrpc": "^3.5.0",
     "ws": "^8.21.0",
     "zod": "^4.4.3"
