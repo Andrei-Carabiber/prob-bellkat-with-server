@@ -41,8 +41,10 @@ type QBKATReturnType = {
         }
 
         states: Object[];
-        mdp_rendered: string
-    }
+
+    };
+    mdp_rendered: string;
+    transition_count:number;
 }
 
 export async function runQBKatCommand(code: string, truncation: number, coverage: number, probOnly: boolean): Promise<QBKATProbOutput | QBKATProbQualityOutput> {

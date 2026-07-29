@@ -25,7 +25,6 @@ export function createProtocolRouter() {
 
         const cachedResult = protocolCache.get(cacheKey);
         if (cachedResult) {
-            console.log(`[Cache Hit] Serving cached result for ${cacheKey}`);
             return res.status(200).json({ ...cachedResult, _cached: true });
         }
 
