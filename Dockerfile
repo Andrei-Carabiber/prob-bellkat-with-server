@@ -27,6 +27,13 @@ WORKDIR /opt/pbkat
 
 COPY . /opt/pbkat
 
+RUN nix develop --command sh -c \
+    "cd /opt/pbkat && hpack"
+
+
+RUN nix develop --command sh -c \
+    "cd /opt/pbkat && cabal build --builddir=/opt/pbkat/shared-build-cache"
+
 
 RUN nix develop --command nix-shell -p nodejs_20 --run \
     "cd /opt/pbkat && npm --prefix editor-webserver ci"
