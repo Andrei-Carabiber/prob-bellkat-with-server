@@ -15,7 +15,8 @@ const wss = new WebSocketServer({ server });
 
 setupHlsWebSocket(wss);
 
-server.listen(8080, () => {
+const port = Number(process.env.PORT ?? 8080)
+server.listen(port, () => {
     console.log('HTTP & WebSocket Server running on port 8080');
     console.log('Pre-warming HLS workers...');
     replenishPool();

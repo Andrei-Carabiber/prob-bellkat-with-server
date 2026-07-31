@@ -2,3 +2,9 @@ Dockerfile*
 output/
 dist-newstyle/
 .direnv/
+.git
+.env
+node_modules
+editor-webserver/node_modules
+editor-webserver/dist
+shared-build-cache
