@@ -46,7 +46,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Configure SSH deployment key
-      - run: | 
+        run: | 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_ed25519
@@ -55,7 +55,7 @@ jobs:
           ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Deploy frontend to Azure VM
-      - run: |
+        run: |
           ssh "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" 'bash -s' <<'EOF'
             set -e
 
