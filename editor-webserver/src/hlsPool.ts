@@ -72,7 +72,25 @@ export async function shutdownPool() {
 }
 
 export function setupHlsWebSocket(wss) {
+
+    const interval = setInterval(() => {
+        wss.clients.forEach((ws) => {
+            if (ws.isAlive === false) {
+                console.log("Client did not respond to ping, terminating...");
+                return ws.terminate();
+            }
+            ws.isAlive = false;
+            ws.ping(); // Sends a ping frame to the client
+        });
+    }, 30000);
+    wss.on('close', () => clearInterval(interval));
+
     wss.on('connection', async (ws) => {
+        ws.isAlive = true;
+        ws.on('pong', () => {
+            ws.isAlive = true;
+        });
+
         console.log("New client connected. Assigning worker...");
 
         let worker = workerPool.shift();
