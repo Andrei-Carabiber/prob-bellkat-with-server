@@ -81,10 +81,10 @@ export async function runPBKatCommand(code: string, command: "run" | "probabilit
             )
             firstDuration = performance.now() - start
 
-            const outputArray = result.stdout.split("\n").filter(line => line.startsWith("⦅"))
+            const outputArray = result.stdout.split("\n").find(line => line.startsWith("⦅"))
             return {
                 mode: command,
-                output: outputArray[0],
+                output: outputArray,
                 durations: {
                     firstDuration,
                     secondDuration
