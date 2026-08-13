@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 
-export const TEMPLATE_DIR = path.resolve('/opt/pbkat');
+const TEMPLATE_DIR = path.resolve('/opt/pbkat');
 
 export const SHARED_BUILD_DIR = path.join(TEMPLATE_DIR, 'shared-build-cache');
 
@@ -24,9 +24,6 @@ export async function createIsolatedWorkspace(id: string): Promise<string> {
             await fs.cp(srcPath, destPath, { recursive: true });
         }
 
-        // Give this workspace its OWN copy of the prebuilt cache, so cabal
-        // only has to build the small per-session Playground target,
-        // not the whole pbkat dependency tree — with no cross-session locking.
         await fs.cp(SHARED_BUILD_DIR, path.join(workspacePath, 'dist-newstyle'), { recursive: true });
 
         return workspacePath;
