@@ -76,13 +76,18 @@ export function setupHlsWebSocket(wss) {
     const interval = setInterval(() => {
         wss.clients.forEach((ws) => {
             if (ws.isAlive === false) {
-                console.log("Client did not respond to ping, terminating...");
-                return ws.terminate();
+                ws.missedPongs = (ws.missedPongs ?? 0) + 1;
+                if (ws.missedPongs >= 3) {
+                    console.log("Client missed 3 pongs, terminating...");
+                    return ws.terminate();
+                }
+            } else {
+                ws.missedPongs = 0;
             }
             ws.isAlive = false;
-            ws.ping(); // Sends a ping frame to the client
+            ws.ping();
         });
-    }, 30000);
+    }, 45000);
     wss.on('close', () => clearInterval(interval));
 
     wss.on('connection', async (ws) => {
