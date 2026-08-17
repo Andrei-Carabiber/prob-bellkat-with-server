@@ -19,7 +19,28 @@ RUN echo "[safe] \
 
 ENTRYPOINT ["nix", "develop"]
 
-FROM tool-base AS backend
+# --- new stage: build only the Haskell dependency set ---
+FROM tool-base AS backend-deps
+
+WORKDIR /opt/pbkat
+
+RUN nix develop --command sh -c \
+    "cd /opt/pbkat && hpack"
+
+# Only builds deps, not your own modules — cached unless package.yaml/flake changes
+RUN nix develop --command sh -c \
+    "cd /opt/pbkat && cabal build --builddir=/opt/pbkat/shared-build-cache --only-dependencies"
+
+# --- new stage: cache npm deps separately from source ---
+FROM backend-deps AS backend-npm-deps
+
+COPY editor-webserver/package.json editor-webserver/package-lock.json /opt/pbkat/editor-webserver/
+
+RUN nix develop --command nix-shell -p nodejs_20 --run \
+    "cd /opt/pbkat && npm --prefix editor-webserver ci"
+
+# --- final stage: bring in full source, build only what changed ---
+FROM backend-npm-deps AS backend
 
 ENTRYPOINT []
 
@@ -30,13 +51,8 @@ COPY . /opt/pbkat
 RUN nix develop --command sh -c \
     "cd /opt/pbkat && hpack"
 
-
 RUN nix develop --command sh -c \
     "cd /opt/pbkat && cabal build --builddir=/opt/pbkat/shared-build-cache"
-
-
-RUN nix develop --command nix-shell -p nodejs_20 --run \
-    "cd /opt/pbkat && npm --prefix editor-webserver ci"
 
 RUN nix develop --command nix-shell -p nodejs_20 --run \
     "cd /opt/pbkat && npm --prefix editor-webserver run build"
