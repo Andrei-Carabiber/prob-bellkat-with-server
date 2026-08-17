@@ -19,42 +19,47 @@ RUN echo "[safe] \
 
 ENTRYPOINT ["nix", "develop"]
 
-# --- new stage: build only the Haskell dependency set ---
+# --- Haskell deps only, cached until package.yaml/flake changes ---
 FROM tool-base AS backend-deps
 
 WORKDIR /opt/pbkat
 
 RUN nix develop --command sh -c \
-    "cd /opt/pbkat && hpack"
+    "cd /opt/pbkat && hpack && cabal build --builddir=/opt/pbkat/shared-build-cache --only-dependencies"
 
-# Only builds deps, not your own modules — cached unless package.yaml/flake changes
-RUN nix develop --command sh -c \
-    "cd /opt/pbkat && cabal build --builddir=/opt/pbkat/shared-build-cache --only-dependencies"
-
-# --- new stage: cache npm deps separately from source ---
+# --- npm deps only, cached until package.json/lock changes ---
 FROM backend-deps AS backend-npm-deps
 
 COPY editor-webserver/package.json editor-webserver/package-lock.json /opt/pbkat/editor-webserver/
 
-RUN nix develop --command nix-shell -p nodejs_20 --run \
+RUN nix develop --command sh -c \
     "cd /opt/pbkat && npm --prefix editor-webserver ci"
 
-# --- final stage: bring in full source, build only what changed ---
-FROM backend-npm-deps AS backend
+# --- Haskell source: only rebuilds when src/ (Haskell) changes ---
+FROM backend-npm-deps AS backend-hs-build
+
+WORKDIR /opt/pbkat
+
+COPY src ./src
+COPY playground-example ./playground-example
+COPY examples ./examples
+COPY probabilistic-examples ./probabilistic-examples
+COPY quantum-examples ./quantum-examples
+COPY test ./test
+
+RUN nix develop --command sh -c \
+    "cd /opt/pbkat && hpack && cabal build --builddir=/opt/pbkat/shared-build-cache"
+
+# --- Node source: only rebuilds when editor-webserver/ changes ---
+FROM backend-hs-build AS backend
 
 ENTRYPOINT []
 
 WORKDIR /opt/pbkat
 
-COPY . /opt/pbkat
+COPY editor-webserver ./editor-webserver
 
 RUN nix develop --command sh -c \
-    "cd /opt/pbkat && hpack"
-
-RUN nix develop --command sh -c \
-    "cd /opt/pbkat && cabal build --builddir=/opt/pbkat/shared-build-cache"
-
-RUN nix develop --command nix-shell -p nodejs_20 --run \
     "cd /opt/pbkat && npm --prefix editor-webserver run build"
 
 ENV NODE_ENV=production
@@ -62,4 +67,5 @@ ENV PORT=8080
 
 EXPOSE 8080
 
-CMD ["nix", "develop", "--command", "nix-shell", "-p", "nodejs_20", "--run", "cd /opt/pbkat && npm --prefix editor-webserver run start"]
+CMD ["nix", "develop", "--command", "sh", "-c", \
+    "cd /opt/pbkat && npm --prefix editor-webserver run start"]

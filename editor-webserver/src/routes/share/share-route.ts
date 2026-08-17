@@ -27,6 +27,7 @@ export function createShareRouter() {
             let shortId: string = "";
             let exists = true;
 
+
             while (exists) {
                 shortId = Math.random().toString(36).substring(2, 10);
                 const current = await redisClient.get(shortId);

@@ -19,6 +19,7 @@ const protocolCache = new LRUCache<string, any>({
 export function createProtocolRouter() {
     const router = Router();
 
+    //Should add queuing to reduce latency. Also timeout for long requests.
     router.post('/run-protocol', validate(ProtocolRequestBody), async (req, res) => {
         const payload = req.body as ProtocolRequestType;
         const cacheKey = generateProtocolCacheKey(payload);

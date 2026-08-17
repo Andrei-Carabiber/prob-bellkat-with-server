@@ -124,8 +124,6 @@ export function setupHlsWebSocket(wss) {
             workspacePath = worker.workspacePath;
             hlsProcess = worker.hlsProcess;
             cachedInitializeResult = worker.cachedInitializeResult;
-
-            // Redirect the existing listener to pipe messages to this client
             worker.clientWriter = writer;
 
             hlsProcess.onExit?.(() => {

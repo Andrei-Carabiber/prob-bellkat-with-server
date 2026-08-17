@@ -63,7 +63,7 @@ README.pdf: README.md metadata.yaml
 NETWORK := pbkat-dev
 REDIS_CONTAINER := pbkat-redis
 
-.PHONY: dev-webserver dev-down
+.PHONY: dev-webserver dev-down dev-network dev-redis
 
 dev-webserver: dev-network dev-redis
 	docker run --rm -it \

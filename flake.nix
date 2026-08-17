@@ -40,6 +40,7 @@
             pkgs.cabal-install
             pkgs.haskellPackages.haskell-language-server
             pkgs.haskellPackages.graphmod
+            pkgs.nodejs_20
             python
             latex
           ];
