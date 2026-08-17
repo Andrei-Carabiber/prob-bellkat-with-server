@@ -57,10 +57,42 @@ README.pdf: README.md metadata.yaml
 	pandoc --pdf-engine=lualatex --metadata-file metadata.yaml --output $@ $<
 
 
-dev-webserver:
+
+# QBKAT Interface dev commands
+
+NETWORK := pbkat-dev
+REDIS_CONTAINER := pbkat-redis
+
+.PHONY: dev-webserver dev-down
+
+dev-webserver: dev-network dev-redis
 	docker run --rm -it \
-		--entrypoint nix \
-		-p 8080:8080 \
-		--mount type=bind,source=$(PWD),target=/opt/pbkat \
-		pbkat:latest \
-		develop --command nix-shell -p nodejs_20 --run 'cd /opt/pbkat && npm run dev --prefix editor-webserver'
+	   --entrypoint nix \
+	   --network $(NETWORK) \
+	   -p 8080:8080 \
+	   -e REDIS_URL=redis://$(REDIS_CONTAINER):6379 \
+	   --mount type=bind,source=$(PWD),target=/opt/pbkat \
+	   pbkat:latest \
+	   develop --command nix-shell -p nodejs_20 --run 'cd /opt/pbkat && npm run dev --prefix editor-webserver'
+
+dev-network:
+	@docker network inspect $(NETWORK) >/dev/null 2>&1 || docker network create $(NETWORK)
+
+dev-redis: dev-network
+	@if [ -z "$$(docker ps -q -f name=^/$(REDIS_CONTAINER)$$)" ]; then \
+		if [ -n "$$(docker ps -aq -f name=^/$(REDIS_CONTAINER)$$)" ]; then \
+			echo "Starting existing redis container..."; \
+			docker start $(REDIS_CONTAINER) >/dev/null; \
+		else \
+			echo "Creating redis container..."; \
+			docker run -d --name $(REDIS_CONTAINER) \
+				--network $(NETWORK) \
+				-p 6379:6379 \
+				redis:alpine >/dev/null; \
+		fi \
+	fi
+
+dev-down:
+	-docker stop $(REDIS_CONTAINER)
+	-docker rm $(REDIS_CONTAINER)
+	-docker network rm $(NETWORK)

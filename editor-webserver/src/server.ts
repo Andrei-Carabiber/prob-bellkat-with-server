@@ -4,11 +4,13 @@ import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import {createProtocolRouter} from './routes/protocol/protocol-route.js'
 import { setupHlsWebSocket, replenishPool, shutdownPool } from './hlsPool.js';
+import {createShareRouter} from "./routes/share/share-route.js";
 
 const app = express();
 app.use(cors({ origin: 'http://localhost:3000' }));
 app.use(express.json());
 app.use(createProtocolRouter());
+app.use(createShareRouter());
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });

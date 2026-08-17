@@ -1,26 +1,30 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc';
-import { createServerProcess } from 'vscode-ws-jsonrpc/server';
+import {createProcessStreamConnection} from 'vscode-ws-jsonrpc/server';
 import { createIsolatedWorkspace } from './workspace.js';
+import cp from "node:child_process";
 
 const POOL_SIZE = 10;
 const workerPool = [];
+
+
+function spawnHlsQuiet(command: string, args: string[], options: cp.SpawnOptions) {
+    const serverProcess = cp.spawn(command, args, options);
+    return createProcessStreamConnection(serverProcess);
+}
 
 async function spawnWorker() {
     const id = crypto.randomUUID();
     const workspacePath = await createIsolatedWorkspace(id);
 
-    const hlsProcess : any = createServerProcess(
-        'Haskell', 'haskell-language-server-wrapper', ['--lsp'],
+    const hlsProcess : any = spawnHlsQuiet(
+        'haskell-language-server-wrapper', ['--lsp'],
         { cwd: workspacePath }
     );
 
     const worker = { id, workspacePath, hlsProcess, cachedInitializeResult: null, clientWriter: null };
 
-    // Single listener for the lifetime of this HLS process.
-    // During pre-warming: respond to HLS requests with stubs so it doesn't hang.
-    // After a client connects: forward everything to the client's writer.
     hlsProcess.reader.listen((msg: any) => {
         if (msg.id !== undefined && msg.result && worker.cachedInitializeResult === null && msg.result.capabilities) {
             worker.cachedInitializeResult = msg;
@@ -140,8 +144,8 @@ export function setupHlsWebSocket(wss) {
             try {
                 workspacePath = await createIsolatedWorkspace(connectionId);
 
-                hlsProcess = createServerProcess(
-                    'Haskell', 'haskell-language-server-wrapper', ['--lsp'],
+                hlsProcess = spawnHlsQuiet(
+                    'haskell-language-server-wrapper', ['--lsp'],
                     { cwd: workspacePath }
                 );
 
