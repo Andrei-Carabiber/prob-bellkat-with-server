@@ -265,14 +265,14 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
             if (coverage < 0 || coverage > 1) {
                 throw new Error("Coverage needs to be between 0 and 1")
             }
-            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json ${executionMode} --compute-extremal --coverage ${coverage}`;
+            command = `cabal run -v0 playground --builddir=${SHARED_BUILD_DIR} -- --json ${executionMode} --compute-extremal --coverage ${coverage}`;
         }
         //Truncation Selected
         else {
             if (truncation < 0) {
                 throw new Error("Truncation cannot be less than 0")
             }
-            command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json ${executionMode} --compute-extremal --truncation ${truncation}`;
+            command = `cabal run -v0 playground --builddir=${SHARED_BUILD_DIR} -- --json ${executionMode} --compute-extremal --truncation ${truncation}`;
         }
 
 
@@ -321,7 +321,7 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
         if (series.cdf_max.length <= 1) {
             throw new Error("Invalid size. Try to increase coverage or truncation")
         }
-        command = `cabal run playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --compute-extremal --truncation ${series.cdf_max.length - 1}`;
+        command = `cabal run -v0 playground --builddir=${SHARED_BUILD_DIR} -- --json qmdp --compute-extremal --truncation ${series.cdf_max.length - 1}`;
 
         start = performance.now()
         const {stdout: pureResult} = await execAsync(
