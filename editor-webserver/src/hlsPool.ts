@@ -5,9 +5,18 @@ import { createServerProcess } from 'vscode-ws-jsonrpc/server';
 import { createIsolatedWorkspace } from './workspace.js';
 
 const POOL_SIZE = 10;
-const workerPool = [];
 
-async function spawnWorker() {
+interface PoolWorker {
+    id: string;
+    workspacePath: string;
+    hlsProcess: any;
+    cachedInitializeResult: any;
+    clientWriter: WebSocketMessageWriter | null;
+}
+
+const workerPool: PoolWorker[] = [];
+
+async function spawnWorker(): Promise<PoolWorker> {
     const id = crypto.randomUUID();
     const workspacePath = await createIsolatedWorkspace(id);
 
@@ -16,7 +25,7 @@ async function spawnWorker() {
         { cwd: workspacePath }
     );
 
-    const worker = { id, workspacePath, hlsProcess, cachedInitializeResult: null, clientWriter: null };
+    const worker: PoolWorker = { id, workspacePath, hlsProcess, cachedInitializeResult: null, clientWriter: null };
 
     hlsProcess.reader.listen((msg: any) => {
         if (msg.id !== undefined && msg.result && worker.cachedInitializeResult === null && msg.result.capabilities) {
@@ -95,11 +104,11 @@ export function setupHlsWebSocket(wss) {
 
         console.log("New client connected. Assigning worker...");
 
-        let worker = workerPool.shift();
-        let workspacePath;
-        let hlsProcess = null;
-        let cachedInitializeResult = null;
-        let activeDocUri = null;
+        let worker: PoolWorker | undefined = workerPool.shift();
+        let workspacePath: string | undefined;
+        let hlsProcess: any = null;
+        let cachedInitializeResult: any = null;
+        let activeDocUri: string | null = null;
 
         const socket = {
             send: (content) => ws.send(content),
