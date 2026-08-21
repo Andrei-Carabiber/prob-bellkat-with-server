@@ -1,19 +1,7 @@
 import {Router} from "express";
 import {validate} from "../zod/validate-schema.js";
 import {z} from "zod";
-import {createClient} from 'redis';
-
-const redisUrl = process.env.REDIS_URL || 'redis://redis';
-const redisClient = createClient({
-    url: redisUrl,
-    socket: {
-        reconnectStrategy: (retries) => Math.min(retries * 100, 3000),
-    },
-});
-redisClient.on('error', (err) => {
-    console.error('Redis Client Error', err);
-});
-await redisClient.connect();
+import {redisClient} from "../../redis.js";
 
 export const SharePostRequestBody = z.object({
     code: z.string(),
@@ -34,7 +22,6 @@ export function createShareRouter() {
         try {
             let shortId: string = "";
             let exists = true;
-
 
             while (exists) {
                 shortId = Math.random().toString(36).substring(2, 10);

@@ -9,6 +9,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "strict": false,
+    "strictNullChecks": true,
     "allowJs": true,
     "checkJs": false,
     "resolveJsonModule": true

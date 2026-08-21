@@ -12,7 +12,7 @@ export const SHARED_BUILD_DIR = '/opt/pbkat/shared-build-cache';
 export const execAsync = promisify(exec);
 
 const protocolCache = new LRUCache<string, any>({
-    max: 500,
+    max: 200,
     ttl: 1000 * 60 * 60 * 24,
 });
 
