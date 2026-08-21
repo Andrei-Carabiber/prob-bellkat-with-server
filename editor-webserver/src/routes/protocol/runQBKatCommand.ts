@@ -10,7 +10,8 @@ export type QBKATProbOutput = {
     mode: "probOnly",
     probabilityMax: number[],
     probabilityMin: number[],
-    duration: number
+    duration: number,
+    _cached?: boolean,
 }
 
 //Return type parsed with werner
@@ -22,7 +23,8 @@ export type QBKATProbQualityOutput = {
     durations: {
         firstDuration : number
         secondDuration: number
-    }
+    },
+    _cached?: boolean,
 }
 
 
@@ -250,7 +252,7 @@ export async function runQBKatCommand(code: string, truncation: number, coverage
 
             if (parsedCache) {
                 console.log("Cache Hit! Returning parsed cache.");
-                return parsedCache;
+                return {...parsedCache, _cached: true};
             }
         }
 
