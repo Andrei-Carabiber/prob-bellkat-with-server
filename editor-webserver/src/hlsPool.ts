@@ -1,99 +1,36 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc';
-import { createProcessStreamConnection, type IConnection } from 'vscode-ws-jsonrpc/server';
+import { createServerProcess } from 'vscode-ws-jsonrpc/server';
 import { createIsolatedWorkspace } from './workspace.js';
-import cp, { type ChildProcess } from "node:child_process";
 
 const POOL_SIZE = 10;
-const workerPool: WorkerItem[] = [];
+const workerPool = [];
 
-type WorkerItem = {
-    id: string;
-    workspacePath: string;
-    hlsProcess: IConnection;
-    serverProcess: ChildProcess;
-    cachedInitializeResult: any;
-    clientWriter: WebSocketMessageWriter | null;
-    readonly isAlive: boolean;
-};
-
-function safeWrite(writer: { write: (msg: any) => any } | null | undefined, msg: any): boolean {
-    if (!writer) return false;
-    try {
-        const promiseOrVoid = writer.write(msg);
-        if (promiseOrVoid && typeof promiseOrVoid.catch === 'function') {
-            promiseOrVoid.catch((err: any) => {
-                console.warn('Swallowed writer promise error:', err?.message || err);
-            });
-        }
-        return true;
-    } catch (err: any) {
-        console.warn('Caught write error on stream:', err?.message || err);
-        return false;
-    }
-}
-
-function spawnHlsQuiet(command: string, args: string[], options: cp.SpawnOptions) {
-    const serverProcess = cp.spawn(command, args, options);
-
-    serverProcess.on('error', (err) => {
-        console.error(`HLS process spawn error:`, err);
-    });
-
-    serverProcess.stdin?.on('error', (err: any) => {
-        console.warn('HLS process stdin stream error:', err.message);
-    });
-
-    serverProcess.stdout?.on('error', (err: any) => {
-        console.warn('HLS process stdout stream error:', err.message);
-    });
-
-    const connection = createProcessStreamConnection(serverProcess);
-
-    (connection.writer as any)?.onError?.((err: any) => {
-        console.warn('JSON-RPC writer error:', err);
-    });
-
-    return { serverProcess, connection };
-}
-
-async function spawnWorker(): Promise<WorkerItem> {
+async function spawnWorker() {
     const id = crypto.randomUUID();
     const workspacePath = await createIsolatedWorkspace(id);
 
-    const { serverProcess, connection: hlsProcess } = spawnHlsQuiet(
-        'haskell-language-server-wrapper', ['--lsp'],
+    const hlsProcess : any = createServerProcess(
+        'Haskell', 'haskell-language-server-wrapper', ['--lsp'],
         { cwd: workspacePath }
     );
 
-    let isExited = false;
-    const worker: WorkerItem = {
-        id,
-        workspacePath,
-        hlsProcess,
-        serverProcess,
-        cachedInitializeResult: null,
-        clientWriter: null,
-        get isAlive() {
-            return !isExited && !serverProcess.killed && Boolean(serverProcess.stdin?.writable);
-        }
-    };
+    const worker = { id, workspacePath, hlsProcess, cachedInitializeResult: null, clientWriter: null };
 
     hlsProcess.reader.listen((msg: any) => {
-        if (!worker.isAlive) return;
-
         if (msg.id !== undefined && msg.result && worker.cachedInitializeResult === null && msg.result.capabilities) {
             worker.cachedInitializeResult = msg;
         }
 
         if (worker.clientWriter) {
-            safeWrite(worker.clientWriter, msg);
+            worker.clientWriter.write(msg);
             return;
         }
 
+        // Pre-warming phase: HLS sends requests (with id + method) that need responses
         if (msg.id !== undefined && msg.method) {
-            safeWrite(hlsProcess.writer, {
+            hlsProcess.writer.write({
                 jsonrpc: '2.0',
                 id: msg.id,
                 result: null
@@ -101,17 +38,11 @@ async function spawnWorker(): Promise<WorkerItem> {
         }
     });
 
-    const onExitCleanup = () => {
-        if (isExited) return;
-        isExited = true;
+    hlsProcess.onExit?.(() => {
         console.log(`Pool worker ${id} HLS exited.`);
         const idx = workerPool.indexOf(worker);
         if (idx !== -1) workerPool.splice(idx, 1);
-        try { hlsProcess.dispose(); } catch {}
-    };
-
-    serverProcess.on('exit', onExitCleanup);
-    serverProcess.on('close', onExitCleanup);
+    });
 
     return worker;
 }
@@ -120,10 +51,8 @@ export function replenishPool() {
     const needed = POOL_SIZE - workerPool.length;
     for (let i = 0; i < needed; i++) {
         spawnWorker().then(worker => {
-            if (worker.isAlive) {
-                workerPool.push(worker);
-                console.log(`Pool: ${workerPool.length}/${POOL_SIZE} workers ready`);
-            }
+            workerPool.push(worker);
+            console.log(`Pool: ${workerPool.length}/${POOL_SIZE} workers ready`);
         }).catch(err => {
             console.error('Failed to spawn pool worker:', err);
         });
@@ -139,9 +68,10 @@ export async function shutdownPool() {
     }));
 }
 
-export function setupHlsWebSocket(wss: any) {
+export function setupHlsWebSocket(wss) {
+
     const interval = setInterval(() => {
-        wss.clients.forEach((ws: any) => {
+        wss.clients.forEach((ws) => {
             if (ws.isAlive === false) {
                 ws.missedPongs = (ws.missedPongs ?? 0) + 1;
                 if (ws.missedPongs >= 3) {
@@ -157,7 +87,7 @@ export function setupHlsWebSocket(wss: any) {
     }, 45000);
     wss.on('close', () => clearInterval(interval));
 
-    wss.on('connection', async (ws: any) => {
+    wss.on('connection', async (ws) => {
         ws.isAlive = true;
         ws.on('pong', () => {
             ws.isAlive = true;
@@ -165,25 +95,17 @@ export function setupHlsWebSocket(wss: any) {
 
         console.log("New client connected. Assigning worker...");
 
-        let worker: WorkerItem | null = null;
-        while (workerPool.length > 0) {
-            const candidate = workerPool.shift();
-            if (candidate && candidate.isAlive) {
-                worker = candidate;
-                break;
-            }
-        }
-
-        let workspacePath: string | undefined;
-        let hlsProcess: IConnection | null = null;
-        let cachedInitializeResult: any = null;
-        let activeDocUri: string | null = null;
+        let worker = workerPool.shift();
+        let workspacePath;
+        let hlsProcess = null;
+        let cachedInitializeResult = null;
+        let activeDocUri = null;
 
         const socket = {
-            send: (content: any) => ws.send(content),
-            onMessage: (cb: any) => ws.on('message', cb),
-            onError: (cb: any) => ws.on('error', cb),
-            onClose: (cb: any) => ws.on('close', cb),
+            send: (content) => ws.send(content),
+            onMessage: (cb) => ws.on('message', cb),
+            onError: (cb) => ws.on('error', cb),
+            onClose: (cb) => ws.on('close', cb),
             dispose: () => ws.close()
         };
 
@@ -195,10 +117,12 @@ export function setupHlsWebSocket(wss: any) {
             workspacePath = worker.workspacePath;
             hlsProcess = worker.hlsProcess;
             cachedInitializeResult = worker.cachedInitializeResult;
+
+            // Redirect the existing listener to pipe messages to this client
             worker.clientWriter = writer;
 
-            worker.serverProcess.on('exit', () => {
-                console.log(`HLS Process for connection ${worker?.id} exited.`);
+            hlsProcess.onExit?.(() => {
+                console.log(`HLS Process for connection ${worker.id} exited.`);
                 hlsProcess = null;
                 cachedInitializeResult = null;
                 activeDocUri = null;
@@ -206,19 +130,19 @@ export function setupHlsWebSocket(wss: any) {
 
             replenishPool();
         } else {
+            // Fallback: no workers available, spawn inline (slow path)
             console.warn("Pool exhausted! Spawning HLS inline (slow path)...");
             const connectionId = crypto.randomUUID();
 
             try {
                 workspacePath = await createIsolatedWorkspace(connectionId);
 
-                const inline = spawnHlsQuiet(
-                    'haskell-language-server-wrapper', ['--lsp'],
+                hlsProcess = createServerProcess(
+                    'Haskell', 'haskell-language-server-wrapper', ['--lsp'],
                     { cwd: workspacePath }
                 );
-                hlsProcess = inline.connection;
 
-                inline.serverProcess.on('exit', () => {
+                hlsProcess.onExit?.(() => {
                     console.log(`HLS Process for connection ${connectionId} exited.`);
                     hlsProcess = null;
                     cachedInitializeResult = null;
@@ -229,7 +153,7 @@ export function setupHlsWebSocket(wss: any) {
                     if (msg.id !== undefined && msg.result && cachedInitializeResult === null && msg.result.capabilities) {
                         cachedInitializeResult = msg;
                     }
-                    safeWrite(writer, msg);
+                    writer.write(msg);
                 });
             } catch (err) {
                 console.error("Failed to initialize client environment:", err);
@@ -242,19 +166,19 @@ export function setupHlsWebSocket(wss: any) {
 
         let seenInitialize = false;
 
-        reader.listen((msg: any) => {
-            if (!hlsProcess || (worker && !worker.isAlive)) return;
+        reader.listen((msg : any) => {
+            if (!hlsProcess) return;
 
             if (msg.method === 'initialize' && cachedInitializeResult) {
                 if (activeDocUri) {
-                    safeWrite(hlsProcess.writer, {
+                    hlsProcess.writer.write({
                         jsonrpc: '2.0',
                         method: 'textDocument/didClose',
                         params: { textDocument: { uri: activeDocUri } }
                     });
                     activeDocUri = null;
                 }
-                safeWrite(writer, { ...cachedInitializeResult, id: msg.id });
+                writer.write({ ...cachedInitializeResult, id: msg.id });
                 seenInitialize = true;
                 return;
             }
@@ -262,7 +186,7 @@ export function setupHlsWebSocket(wss: any) {
                 return;
             }
             if (msg.method === 'shutdown') {
-                safeWrite(writer, { jsonrpc: '2.0', id: msg.id, result: null });
+                writer.write({ jsonrpc: '2.0', id: msg.id, result: null } as any);
                 return;
             }
             if (msg.method === 'exit') {
@@ -275,7 +199,7 @@ export function setupHlsWebSocket(wss: any) {
                 activeDocUri = msg.params?.textDocument?.uri ?? activeDocUri;
             }
 
-            safeWrite(hlsProcess.writer, msg);
+            hlsProcess.writer.write(msg);
         });
 
         ws.on('close', async () => {
